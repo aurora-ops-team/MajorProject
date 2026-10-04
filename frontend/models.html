@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Model Training & Performance Center | Aurora Ops</title>
+<meta name="description" content="Compare Random Forest, XGBoost, SVM, Isolation Forest, One-Class SVM and Autoencoder models used for satellite health prediction and anomaly detection." />
+<link rel="stylesheet" href="universal.css" />
+<script src="vendor/chart.umd.js"></script>
+<style>
+  .model-select-box { border-radius: var(--radius-xl); padding: .75rem 1rem; }
+  .model-select-box select { min-width: 230px; height: 2.25rem; border-radius: var(--radius-lg); border: 1px solid oklch(0.78 0.145 205 / 45%); background: oklch(0.16 0.03 258 / 70%); padding: 0 .75rem; font-size: .875rem; font-weight: 500; color: var(--primary); outline: none; }
+  .info-grid { display: grid; gap: .75rem; grid-template-columns: repeat(4, 1fr); padding: 1.25rem; }
+  .info-cell { border-radius: var(--radius-lg); border: 1px solid oklch(0.35 0.035 255 / 45%); background: oklch(0.16 0.03 258 / 35%); padding: .75rem; }
+  .info-cell .k { font-size: .58rem; text-transform: uppercase; letter-spacing: .14em; color: var(--muted-foreground); }
+  .info-cell .v { margin-top: .25rem; font-size: .75rem; }
+  .hyperparams-row { border-top: 1px solid oklch(0.35 0.035 255 / 30%); padding: 1rem 1.25rem; }
+  .hp-chip { border-radius: var(--radius-md); border: 1px solid var(--border); background: oklch(0.21 0.032 258 / 40%); padding: .25rem .625rem; font-size: .68rem; font-family: var(--font-mono); }
+  .confusion-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: .75rem; padding: 1.25rem; }
+  .confusion-cell { border-radius: var(--radius-xl); border: 1px solid; padding: 1rem; }
+  .confusion-cell .k { font-size: .6rem; text-transform: uppercase; letter-spacing: .14em; color: var(--muted-foreground); }
+  .confusion-cell .v { margin-top: .5rem; font-family: var(--font-mono); font-size: 1.5rem; font-weight: 600; }
+  .chart-body-lg { height: 280px; padding: 1rem .5rem; }
+  .chart-body-xl { height: 300px; padding: 1rem .5rem; }
+  .plot-gallery { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; padding: 1.25rem; }
+  .plot-gallery figure { margin: 0; border-radius: var(--radius-lg); border: 1px solid var(--border); background: oklch(0.16 0.03 258 / 35%); padding: .5rem; }
+  .plot-gallery img { width: 100%; border-radius: var(--radius-md); display: block; }
+  .plot-gallery figcaption { margin-top: .375rem; font-size: .68rem; color: var(--muted-foreground); text-align: center; }
+  @media (max-width: 900px) { .info-grid { grid-template-columns: repeat(2, 1fr); } }
+</style>
+</head>
+<body>
+<script src="app.js"></script>
+<script src="api.js"></script>
+<script>
+  const pageRoot = renderShell("Model Training & Performance Center");
+  const pct = (v) => (v * 100).toFixed(1) + "%";
+  const CHART_COLORS = { c1: "#67d9f0", c2: "#7f8ff5", c3: "#7fe0a8", c4: "#e8c368", c5: "#e0685f" };
+  let allModels = [];
+  let bestModels = {};
+  let name = null;
+  let charts = [];
+
+  function destroyCharts() { charts.forEach((c) => c && c.destroy()); charts = []; }
+
+  function isBestModel(model) {
+    return model.name === bestModels.health_prediction || model.name === bestModels.anomaly_detection;
+  }
+  function bestBadgeText(model) {
+    if (model.name === bestModels.health_prediction) return "🏆 Best Health-Prediction Model";
+    if (model.name === bestModels.anomaly_detection) return "🏆 Best Anomaly-Detection Model";
+    return null;
+  }
+
+  async function render() {
+    const model = await api.getModel(name);
+
+    pageRoot.innerHTML = `
+      <div class="stack">
+        <div class="page-header">
+          <div><h1>Model Training & Performance Center</h1><p class="subtitle">Real evaluation results from ModelTraining/reports for satellite health prediction and anomaly detection.</p></div>
+          <div class="glass model-select-box">
+            <label class="field"><span class="field-label">Select Model</span>
+              <select id="modelSelect">${allModels.map((m) => `<option value="${m.name}" ${m.name === name ? "selected" : ""}>${m.name}${isBestModel(m) ? "  ★" : ""}</option>`).join("")}</select>
+            </label>
+          </div>
+        </div>
+
+        <section class="panel glass">
+          <div class="panel-header">
+            <div><h3>Model Information</h3><p class="subtitle">${model.purpose}</p></div>
+            ${bestBadgeText(model) ? `<span class="badge trophy glow-primary">${bestBadgeText(model)}</span>` : statusChipHTML(model.deployment_status.includes("Active") ? "Trained" : "Trained", false)}
+          </div>
+          <div class="info-grid">
+            ${[["Model Name", model.name], ["Model Type", model.type], ["Target", model.target], ["Features", String(model.features)],
+               ["Training Samples", model.train_samples.toLocaleString()], ["Testing Samples", model.test_samples.toLocaleString()],
+               ["Deployment", model.deployment_status], ["Purpose", model.purpose]]
+              .map(([k, v]) => `<div class="info-cell"><p class="k">${k}</p><p class="v">${v}</p></div>`).join("")}
+          </div>
+          <div class="hyperparams-row">
+            <p class="text-muted" style="font-size:.58rem;text-transform:uppercase;letter-spacing:.16em">Hyperparameters</p>
+            <div style="margin-top:.5rem;display:flex;flex-wrap:wrap;gap:.5rem">
+              ${Object.entries(model.hyperparameters).map(([k, v]) => `<span class="hp-chip"><span class="text-muted">${k}</span> = <span class="text-primary">${v}</span></span>`).join("")}
+            </div>
+          </div>
+          ${model.notes ? `<div class="hyperparams-row" style="border-top:1px solid oklch(0.35 0.035 255 / 30%)"><p class="text-muted" style="font-size:.75rem;line-height:1.6">${model.notes}</p></div>` : ""}
+        </section>
+
+        <div class="grid-4">
+          <div class="metric-card glass glass-hover"><div class="top-line" style="background:linear-gradient(90deg,transparent,var(--primary),transparent)"></div><div class="label"><span>Accuracy</span></div><p class="value" style="color:var(--primary)">${pct(model.accuracy)}</p></div>
+          <div class="metric-card glass glass-hover"><div class="top-line" style="background:linear-gradient(90deg,transparent,var(--chart-2),transparent)"></div><div class="label"><span>Precision (wtd)</span></div><p class="value" style="color:${CHART_COLORS.c2}">${pct(model.precision)}</p></div>
+          <div class="metric-card glass glass-hover"><div class="top-line" style="background:linear-gradient(90deg,transparent,var(--nominal),transparent)"></div><div class="label"><span>Recall (wtd)</span></div><p class="value" style="color:var(--nominal)">${pct(model.recall)}</p></div>
+          <div class="metric-card glass glass-hover"><div class="top-line" style="background:linear-gradient(90deg,transparent,var(--warning),transparent)"></div><div class="label"><span>ROC-AUC</span></div><p class="value" style="color:var(--warning)">${model.roc_auc.toFixed(4)}</p></div>
+        </div>
+
+        <div class="grid-2">
+          <section class="panel glass">
+            <div class="panel-header"><h3>Confusion Matrix</h3><p class="subtitle">Evaluated on ${model.test_samples.toLocaleString()} held-out samples (labels: ${model.confusion_matrix.labels.join(" / ")})</p></div>
+            <div class="confusion-grid" id="confusionGrid"></div>
+          </section>
+          <section class="panel glass">
+            <div class="panel-header"><h3>${model.feature_importance && Object.keys(model.feature_importance).length ? "Feature Importance" : "Training Plot"}</h3><p class="subtitle">${model.feature_importance && Object.keys(model.feature_importance).length ? "Relative contribution to health classification" : model.plots[0] || ""}</p></div>
+            <div class="chart-body-xl" id="chartArea"></div>
+          </section>
+        </div>
+
+        <section class="panel glass">
+          <div class="panel-header"><h3>Training Plots</h3><p class="subtitle">Generated directly by ModelTraining scripts</p></div>
+          <div class="plot-gallery">
+            ${model.plots.map((p) => `<figure><img src="${api.modelPlotUrl(p)}" alt="${p}" loading="lazy" /><figcaption>${p}</figcaption></figure>`).join("")}
+          </div>
+        </section>
+
+        <section class="panel glass">
+          <div class="panel-header"><h3>Model Comparison</h3><p class="subtitle">All trained models evaluated on the same held-out split</p></div>
+          <div class="table-wrap"><table class="data-table" style="min-width:820px">
+            <thead><tr><th>Model</th><th>Accuracy</th><th>Precision</th><th>Recall</th><th>ROC-AUC</th><th>Target</th><th>Status</th></tr></thead>
+            <tbody id="comparisonBody"></tbody>
+          </table></div>
+        </section>
+      </div>
+    `;
+
+    document.getElementById("modelSelect").addEventListener("change", (e) => { name = e.target.value; render(); });
+
+    const cm = model.confusion_matrix.matrix; // [[TN,FP],[FN,TP]]
+    const cells = [
+      { label: `True ${model.confusion_matrix.labels[0]}`, value: cm[0][0], color: "var(--nominal)" },
+      { label: `False ${model.confusion_matrix.labels[1]}`, value: cm[0][1], color: "var(--warning)" },
+      { label: `False ${model.confusion_matrix.labels[0]}`, value: cm[1][0], color: "var(--caution)" },
+      { label: `True ${model.confusion_matrix.labels[1]}`, value: cm[1][1], color: "var(--primary)" },
+    ];
+    document.getElementById("confusionGrid").innerHTML = cells.map((c) => `
+      <div class="confusion-cell" style="border-color:${c.color}">
+        <p class="k">${c.label}</p><p class="v" style="color:${c.color}">${c.value.toLocaleString()}</p>
+      </div>`).join("");
+
+    document.getElementById("comparisonBody").innerHTML = allModels.map((m) => {
+      const best = isBestModel(m);
+      return `<tr class="clickable ${m.name === name ? "selected" : ""}" data-model="${m.name}" style="${best ? "background:rgba(120,210,150,0.05)" : ""}">
+        <td style="font-weight:500"><span style="display:flex;align-items:center;gap:.5rem">${best ? "🏆" : ""} ${m.name}</span></td>
+        <td class="mono-num">${pct(m.accuracy)}</td>
+        <td class="mono-num">${pct(m.precision)}</td>
+        <td class="mono-num">${pct(m.recall)}</td>
+        <td class="mono-num" style="color:${best ? "var(--nominal)" : ""}">${m.roc_auc.toFixed(3)}</td>
+        <td class="mono-num text-muted">${m.target}</td>
+        <td>${statusChipHTML(m.deployment_status.includes("Active") ? "Active" : "Trained", false)}</td>
+      </tr>`;
+    }).join("");
+    document.querySelectorAll("[data-model]").forEach((tr) => tr.addEventListener("click", () => { name = tr.dataset.model; render(); }));
+
+    destroyCharts();
+    const axisTicks = { color: "#8a93a8", font: { size: 10 } };
+    const hasFI = model.feature_importance && Object.keys(model.feature_importance).length;
+    if (hasFI) {
+      document.getElementById("chartArea").innerHTML = '<canvas id="fiChart"></canvas>';
+      const entries = Object.entries(model.feature_importance).sort((a, b) => b[1] - a[1]);
+      charts.push(chartOrFallback("fiChart", (canvas) => new Chart(canvas, {
+        type: "bar",
+        data: { labels: entries.map((e) => e[0]), datasets: [{ label: "Importance", data: entries.map((e) => e[1]), backgroundColor: CHART_COLORS.c1, borderRadius: 6 }] },
+        options: { indexAxis: "y", maintainAspectRatio: false, plugins: { legend: { display: false } },
+          scales: { x: { grid: { color: "rgba(148,163,184,0.12)" }, ticks: axisTicks }, y: { grid: { display: false }, ticks: axisTicks } } },
+      })));
+    } else if (model.plots[0]) {
+      document.getElementById("chartArea").innerHTML = `<img src="${api.modelPlotUrl(model.plots[0])}" style="max-height:100%;max-width:100%;margin:0 auto;display:block;border-radius:var(--radius-md)" alt="${model.plots[0]}" />`;
+    } else {
+      document.getElementById("chartArea").innerHTML = "";
+    }
+  }
+
+  async function init() {
+    const res = await api.getModels();
+    allModels = res.models;
+    bestModels = res.best_models;
+    name = bestModels.health_prediction;
+    render();
+  }
+
+  init();
+</script>
+</body>
+</html>

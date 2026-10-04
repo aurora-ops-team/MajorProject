@@ -1,0 +1,32 @@
+================================================================================
+SVM (RBF KERNEL) - SATELLITE HEALTH CLASSIFIER
+================================================================================
+Train: (7200, 7) | Test: (1800, 7)
+Using data/processed/X_train.csv (already StandardScaler-scaled by Step 2) -- SVM requires scaled input to behave correctly.
+
+-- Hyperparameter search (5-fold CV on training data) --
+Best params: {'C': 5, 'gamma': 0.01}
+Best CV ROC-AUC: 0.7746
+
+-- Test set performance --
+              precision    recall  f1-score   support
+
+           0      0.618     0.722     0.666       680
+           1      0.812     0.729     0.769      1120
+
+    accuracy                          0.727      1800
+   macro avg      0.715     0.726     0.717      1800
+weighted avg      0.739     0.727     0.730      1800
+
+Test ROC-AUC: 0.7897
+
+Confusion matrix:
+[[491 189]
+ [303 817]]
+
+Note: SVC has no native feature_importances_ (unlike tree models) since it
+works via a kernel-transformed decision boundary rather than feature splits.
+
+Saved plots: svm_confusion_matrix.png, svm_roc_curve.png
+
+Saved trained model to: artifacts/model_svm.joblib

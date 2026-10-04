@@ -1,0 +1,389 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Mission Control Dashboard | Aurora Ops</title>
+<meta name="description" content="Live orbital view, satellite telemetry panels and mission overview for SAT-01 and SAT-02 in the Aurora Ops control platform." />
+<link rel="stylesheet" href="universal.css" />
+<script src="vendor/chart.umd.js"></script>
+<style>
+  /* page-specific styles */
+  .orbit-wrap { position: relative; display: flex; align-items: center; justify-content: center; padding: 2rem 1.5rem; }
+  .orbit-stage { position: relative; aspect-ratio: 1; width: 100%; max-width: 520px; }
+  .orbit-ring { position: absolute; border-radius: 999px; border: 1px solid oklch(0.78 0.145 205 / 10%); }
+  .earth-wrap { position: absolute; inset: 27%; border-radius: 999px; }
+  .earth-sphere { width: 100%; height: 100%; border-radius: 999px;
+    background: radial-gradient(circle at 32% 28%, oklch(0.62 0.13 215), oklch(0.38 0.11 245) 42%, oklch(0.19 0.07 260) 78%, oklch(0.13 0.05 262));
+    box-shadow: 0 0 70px -10px oklch(0.65 0.16 215 / 60%), inset -18px -14px 50px oklch(0 0 0 / 70%), inset 8px 6px 34px oklch(0.8 0.12 210 / 22%); }
+  .earth-continents { position: absolute; inset: 0; border-radius: 999px; opacity: .45; mix-blend-mode: screen;
+    background: radial-gradient(ellipse 40% 22% at 34% 40%, oklch(0.72 0.16 155 / 70%), transparent 60%), radial-gradient(ellipse 26% 30% at 66% 62%, oklch(0.68 0.15 150 / 60%), transparent 62%), radial-gradient(ellipse 22% 14% at 52% 22%, oklch(0.7 0.14 148 / 55%), transparent 60%); }
+  .earth-outline { position: absolute; inset: -8px; border-radius: 999px; border: 1px solid oklch(0.78 0.145 205 / 25%); }
+  .orbit-path { position: absolute; border-radius: 999px; border: 1px dashed oklch(0.75 0.1 210 / 26%); }
+  .orbit-spinner { position: absolute; pointer-events: none; }
+  .sat-btn { position: absolute; z-index: 2; left: 50%; top: 0; width: 2.75rem; height: 2.75rem; transform: translate(-50%, -50%); border: none; background: none; cursor: pointer; pointer-events: auto; transition: transform .2s; padding: 0; }
+  .sat-btn:hover { transform: translate(-50%, -50%) scale(1.25); }
+  .sat-btn .pulse { position: absolute; inset: 0; border-radius: 999px; opacity: .22; animation: pulse-ring 2.6s ease-out infinite; }
+  .sat-tooltip { pointer-events: none; position: absolute; left: 50%; top: .5rem; z-index: 20; width: 15rem; transform: translateX(-50%); display: none; }
+  .sat-tooltip.show { display: block; }
+  .sat-tooltip .tt-panel { border-radius: var(--radius-lg); padding: .75rem; }
+  .sat-legend { display: flex; flex-wrap: wrap; gap: .75rem; border-top: 1px solid var(--border); padding: .75rem 1.25rem; }
+  .sat-legend button { display: flex; align-items: center; gap: .75rem; border-radius: var(--radius-lg); border: 1px solid var(--border); background: none; padding: .5rem .75rem; text-align: left; cursor: pointer; transition: border-color .2s, transform .2s; }
+  .sat-legend button:hover { border-color: oklch(0.78 0.145 205 / 45%); transform: translateY(-2px); }
+  .sat-dot { width: .5rem; height: .5rem; border-radius: 999px; box-shadow: 0 0 10px currentColor; }
+  .overview-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: .75rem; padding: 1rem; }
+  .overview-cell { border-radius: var(--radius-lg); border: 1px solid var(--border); background: oklch(0.16 0.03 258 / 35%); padding: .75rem; }
+  .overview-cell .top { display: flex; align-items: center; justify-content: space-between; color: var(--muted-foreground); }
+  .overview-cell .top span:first-child { font-size: .6rem; text-transform: uppercase; letter-spacing: .14em; }
+  .overview-cell .val { margin-top: .5rem; font-family: var(--font-mono); font-size: 1.5rem; font-weight: 600; }
+  .ai-note { border-top: 1px solid var(--border); padding: .75rem 1rem; }
+  .ai-note .eyebrow { font-size: .62rem; text-transform: uppercase; letter-spacing: .16em; color: var(--muted-foreground); }
+  .ai-note p.body { margin-top: .375rem; font-size: .75rem; line-height: 1.6; color: oklch(0.95 0.012 240 / 80%); }
+  .detail-grid { display: grid; gap: 1.25rem; grid-template-columns: auto 1fr; padding: 1.25rem; }
+  .gauge-pair { display: flex; gap: 1.25rem; }
+  .detail-rows { display: grid; grid-template-columns: repeat(2, 1fr); gap: .5rem; }
+  .detail-row { border-radius: var(--radius-lg); border: 1px solid var(--panel-border); background: oklch(0.2 0.03 258 / 45%); padding: .5rem .75rem; }
+  .detail-row.bad { border-color: oklch(0.65 0.23 24 / 45%); background: oklch(0.4 0.14 24 / 16%); }
+  .detail-row .k { font-size: .62rem; text-transform: uppercase; letter-spacing: .14em; color: var(--muted-foreground); }
+  .detail-row .v { margin-top: .125rem; font-family: var(--font-mono); font-size: .875rem; font-weight: 600; }
+  .detail-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .75rem; border-top: 1px solid var(--border); padding: .75rem 1.25rem; font-size: .75rem; color: var(--muted-foreground); }
+  .mini-chart-body { height: 130px; padding: .75rem .5rem; }
+  @media (max-width: 900px) { .detail-grid { grid-template-columns: 1fr; } }
+  @media (max-width: 720px) { .overview-grid { grid-template-columns: repeat(2, 1fr); } }
+</style>
+</head>
+<body>
+<script src="app.js"></script>
+<script src="api.js"></script>
+<script>
+  const pageRoot = renderShell("Mission Control Dashboard");
+
+  // Cosmetic identity only (name/orbit look) -- every numeric value on
+  // this page comes from the backend.
+  const SAT_META = {
+    "SAT-01": { name: "AURORA-1", noradId: "NORAD 48274", mission: "Earth observation / X-band downlink", orbitRadius: 40, orbitTiltDeg: -18, period: 26, seed: 1337 },
+    "SAT-02": { name: "AURORA-2", noradId: "NORAD 48910", mission: "Atmospheric sensing / S-band relay", orbitRadius: 30, orbitTiltDeg: 24, period: 18, seed: 8821 },
+  };
+
+  let dashboard = null;       // latest /api/dashboard response
+  let selected = "SAT-01";
+  let hovered = null;
+
+  pageRoot.innerHTML = `
+    <div class="stack">
+      <div class="grid-2" style="grid-template-columns: 1fr 340px;">
+        <section class="panel glass">
+          <div class="panel-header">
+            <div><h3>Orbital Situational Awareness</h3><p class="subtitle">Real-time constellation tracking · backend-simulated telemetry</p></div>
+            <span style="display:inline-flex;align-items:center;gap:.5rem;font-size:.65rem;text-transform:uppercase;letter-spacing:.16em;color:var(--primary)">${ICONS.activity} Tracking 2 objects</span>
+          </div>
+          <div class="orbit-wrap">
+            <div class="orbit-stage" id="orbitStage"></div>
+          </div>
+          <div class="sat-legend" id="satLegend"></div>
+        </section>
+
+        <section class="panel glass" style="height:fit-content">
+          <div class="panel-header"><div><h3>Mission Overview</h3><p class="subtitle" id="overviewSubtitle">Fleet state</p></div></div>
+          <div class="overview-grid" id="overviewGrid"></div>
+          <div class="ai-note">
+            <p class="eyebrow">AI health prediction</p>
+            <p class="body" id="aiNote">Loading live prediction…</p>
+          </div>
+        </section>
+      </div>
+
+      <div id="telemetryDetails"></div>
+
+      <div class="grid-3" id="miniCharts"></div>
+    </div>
+  `;
+
+  function satGlyphSVG(color) {
+    return `<svg viewBox="0 0 48 48" style="width:100%;height:100%;filter:drop-shadow(0 0 8px ${color})">
+      <g stroke="${color}" stroke-width="1.6" fill="none" stroke-linecap="round">
+        <rect x="20" y="18" width="8" height="12" rx="1.5" fill="oklch(0.3 0.04 255)" />
+        <rect x="6" y="19" width="12" height="10" rx="1" fill="${color}" fill-opacity="0.22" />
+        <rect x="30" y="19" width="12" height="10" rx="1" fill="${color}" fill-opacity="0.22" />
+        <line x1="10" y1="19" x2="10" y2="29" /><line x1="14" y1="19" x2="14" y2="29" />
+        <line x1="34" y1="19" x2="34" y2="29" /><line x1="38" y1="19" x2="38" y2="29" />
+        <line x1="24" y1="18" x2="24" y2="12" /><circle cx="24" cy="10" r="2.4" fill="${color}" fill-opacity="0.5" />
+        <line x1="24" y1="30" x2="24" y2="34" />
+      </g></svg>`;
+  }
+
+  function findSat(id) {
+    return dashboard ? dashboard.satellites.find((s) => s.id === id) : null;
+  }
+
+  function updateOrbitHighlight() {
+    const stage = document.getElementById("orbitStage");
+    if (!stage) return;
+    stage.querySelectorAll(".sat-btn").forEach((btn) => {
+      const id = btn.dataset.id;
+      const meta = SAT_META[id];
+      const active = selected === id || hovered === id;
+      btn.style.transform =
+        `translate(-50%, -50%) rotate(${-meta.orbitTiltDeg}deg) scale(${active ? 1.25 : 1})`;
+    });
+  }
+
+  function renderOrbit() {
+    const stage = document.getElementById("orbitStage");
+    let html = `
+      <div class="orbit-ring" style="inset:6%"></div>
+      <div class="orbit-ring" style="inset:18%"></div>
+      <div class="earth-wrap">
+        <div class="earth-sphere"></div>
+        <div class="earth-continents"></div>
+        <div class="earth-outline"></div>
+      </div>`;
+    SATELLITE_IDS.forEach((id) => {
+      const sat = findSat(id);
+      const meta = SAT_META[id];
+      const color = statusColorVar(sat ? sat.priority : "NORMAL");
+      const active = selected === id || hovered === id;
+      html += `
+        <div class="orbit-spinner" style="inset:0;transform:rotate(${meta.orbitTiltDeg}deg)">
+          <div class="orbit-path" style="inset:${50 - meta.orbitRadius}%"></div>
+          <div style="position:absolute;inset:${50 - meta.orbitRadius}%;animation:orbit-spin ${meta.period}s linear infinite">
+            <button type="button" class="sat-btn" data-id="${id}" aria-label="${id} telemetry"
+              style="transform:translate(-50%,-50%) rotate(${-meta.orbitTiltDeg}deg) scale(${active ? 1.25 : 1})">
+              <span class="pulse" style="background:${color}"></span>
+              ${satGlyphSVG(color)}
+            </button>
+          </div>
+        </div>`;
+    });
+    html += `<div class="sat-tooltip" id="satTooltip"></div>`;
+    stage.innerHTML = html;
+
+    stage.querySelectorAll(".sat-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const id = btn.dataset.id;
+        selected = id;
+        renderOrbit();
+        renderTelemetryDetails();
+      });
+      btn.addEventListener("pointerenter", () => {
+        const id = btn.dataset.id;
+        hovered = id;
+        updateOrbitHighlight();
+        showTooltip(id);
+      });
+      btn.addEventListener("pointerleave", () => {
+        const id = btn.dataset.id;
+        if (hovered !== id) return;
+        hovered = null;
+        updateOrbitHighlight();
+        hideTooltip();
+      });
+      btn.addEventListener("focus", () => {
+        const id = btn.dataset.id;
+        hovered = id;
+        updateOrbitHighlight();
+        showTooltip(id);
+      });
+      btn.addEventListener("blur", () => {
+        const id = btn.dataset.id;
+        if (hovered !== id) return;
+        hovered = null;
+        updateOrbitHighlight();
+        hideTooltip();
+      });
+    });
+  }
+
+  function showTooltip(id) {
+    const sat = findSat(id);
+    const meta = SAT_META[id];
+    const tt = document.getElementById("satTooltip");
+    if (!tt || !sat) return;
+    tt.innerHTML = `
+      <div class="tt-panel glass">
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <p class="font-display" style="font-size:.875rem;font-weight:600;letter-spacing:.02em">${id}</p>
+          ${statusChipHTML(sat.priority)}
+        </div>
+        <p style="margin-top:.125rem;font-size:.7rem;color:var(--muted-foreground)">${meta.name} · ${meta.noradId}</p>
+        <dl style="margin-top:.5rem;display:grid;grid-template-columns:repeat(2,1fr);gap:.375rem;font-size:.7rem">
+          <div><dt class="text-muted">Battery</dt><dd class="mono-num">${sat.telemetry.battery_voltage.toFixed(1)} V</dd></div>
+          <div><dt class="text-muted">Altitude</dt><dd class="mono-num">${sat.telemetry.orbital_altitude.toFixed(1)} km</dd></div>
+          <div><dt class="text-muted">Panel Temp</dt><dd class="mono-num">${sat.telemetry.solar_panel_temperature.toFixed(1)} °C</dd></div>
+          <div><dt class="text-muted">Anomaly</dt><dd class="mono-num">${sat.anomaly_score.toFixed(2)}</dd></div>
+        </dl>
+        <p style="margin-top:.5rem;font-size:.62rem;text-transform:uppercase;letter-spacing:.14em;color:var(--primary)">Click for telemetry</p>
+      </div>`;
+    tt.classList.add("show");
+  }
+  function hideTooltip() { const tt = document.getElementById("satTooltip"); if (tt) tt.classList.remove("show"); }
+
+  function renderLegend() {
+    document.getElementById("satLegend").innerHTML = SATELLITE_IDS.map((id) => {
+      const sat = findSat(id);
+      const meta = SAT_META[id];
+      const color = statusColorVar(sat ? sat.priority : "NORMAL");
+      return `<button type="button" data-id="${id}" class="glass-hover">
+        <span class="sat-dot" style="background:${color};color:${color}"></span>
+        <span class="font-display" style="font-size:.75rem;font-weight:600;letter-spacing:.02em">${id}</span>
+        <span style="font-size:.68rem;color:var(--muted-foreground)">${meta.name}</span>
+        ${sat ? statusChipHTML(sat.priority, false) : ""}
+      </button>`;
+    }).join("");
+    document.getElementById("satLegend").querySelectorAll("button").forEach((b) => {
+      b.addEventListener("click", () => { selected = b.dataset.id; renderOrbit(); renderTelemetryDetails(); });
+    });
+  }
+
+  function drawGauge(elId, value, label, sublabel, color, size) {
+    size = size || 96;
+    const r = size / 2 - 7, c = 2 * Math.PI * r, pct = Math.max(0, Math.min(1, value));
+    document.getElementById(elId).outerHTML = `
+      <div class="gauge-wrap" id="${elId}">
+        <div class="gauge-inner" style="width:${size}px;height:${size}px">
+          <svg width="${size}" height="${size}" style="transform:rotate(-90deg)">
+            <circle cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke="var(--grid)" stroke-width="6" />
+            <circle cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke="${color}" stroke-width="6" stroke-linecap="round"
+              stroke-dasharray="${c}" stroke-dashoffset="${c * (1 - pct)}" style="filter:drop-shadow(0 0 6px ${color})" />
+          </svg>
+          <div class="gauge-center">
+            <span class="gauge-value" style="color:${color}">${label}</span>
+            <span class="gauge-sublabel">${sublabel}</span>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  function renderTelemetryDetails() {
+    const root = document.getElementById("telemetryDetails");
+    const sat = findSat(selected);
+    const meta = selected ? SAT_META[selected] : null;
+    if (!sat || !meta) { root.innerHTML = ""; return; }
+    const t = sat.telemetry;
+    const rows = [
+      { label: "Battery Voltage", value: `${t.battery_voltage.toFixed(2)} V` },
+      { label: "Solar Panel Temperature", value: `${t.solar_panel_temperature.toFixed(1)} °C` },
+      { label: "Orbital Altitude", value: `${t.orbital_altitude.toFixed(1)} km` },
+      { label: "Attitude Control Error", value: `${t.attitude_control_error.toFixed(2)}°` },
+      { label: "Data Transmission Rate", value: `${t.data_transmission_rate.toFixed(1)} Mbps` },
+      { label: "Thermal Control Status", value: t.thermal_control_status === 1 ? "NOMINAL" : "DEGRADED" },
+    ];
+    const color = statusColorVar(sat.priority);
+    root.innerHTML = `
+      <section class="panel glass">
+        <div class="panel-header">
+          <div><h3>${selected} · Telemetry Details</h3><p class="subtitle">${meta.name} · ${meta.noradId} · ${meta.mission}</p></div>
+          <button type="button" id="closeDetails" class="icon-btn" aria-label="Close telemetry panel">${ICONS.x}</button>
+        </div>
+        <div class="detail-grid">
+          <div class="gauge-pair">
+            <div id="gaugeHealth"></div>
+            <div id="gaugeAnomaly"></div>
+          </div>
+          <div class="detail-rows">
+            ${rows.map((r) => `
+              <div class="detail-row">
+                <p class="k">${r.label}</p>
+                <p class="v">${r.value}</p>
+              </div>`).join("")}
+          </div>
+        </div>
+        <div class="detail-foot">
+          <div style="display:flex;align-items:center;gap:.5rem"><span>Overall priority</span>${statusChipHTML(sat.priority)}</div>
+          <span class="mono-num">Last updated ${sat.last_updated ? new Date(sat.last_updated).toISOString().replace("T", " ").slice(0, 19) + " UTC" : "—"}</span>
+        </div>
+      </section>`;
+    document.getElementById("closeDetails").addEventListener("click", () => { selected = null; renderOrbit(); renderTelemetryDetails(); });
+    drawGauge("gaugeHealth", sat.health_confidence / 100, `${Math.round(sat.health_confidence)}%`, sat.health_prediction, color);
+    drawGauge("gaugeAnomaly", sat.anomaly_score, sat.anomaly_score.toFixed(2), "Anomaly", "var(--chart-2)");
+  }
+
+  /* ---------- mini charts (real history from the backend) ---------- */
+  let miniCharts = [];
+  const miniConfigs = [
+    { title: "Battery Voltage", key: "battery_voltage", unit: "V", color: "#67d9f0" },
+    { title: "Panel Temperature", key: "solar_panel_temperature", unit: "°C", color: "#e8c368" },
+    { title: "Orbital Altitude", key: "orbital_altitude", unit: "km", color: "#7fe0a8" },
+  ];
+  document.getElementById("miniCharts").innerHTML = miniConfigs.map((m, i) => `
+    <section class="panel glass">
+      <div class="panel-header"><h3>${m.title}</h3><span class="mono-num text-muted" style="font-size:.75rem">${m.unit}</span></div>
+      <div class="mini-chart-body"><canvas id="miniChart${i}"></canvas></div>
+    </section>`).join("");
+
+  async function renderMiniCharts() {
+    const [h1, h2] = await Promise.all([
+      api.getSatelliteHistory("SAT-01", 30),
+      api.getSatelliteHistory("SAT-02", 30),
+    ]);
+    const d1 = h1.history, d2 = h2.history;
+    const labels = d1.map((p) => new Date(p.timestamp).toISOString().slice(11, 19));
+    miniCharts.forEach((c) => c && c.destroy());
+    miniCharts = [];
+    miniConfigs.forEach((m, i) => {
+      miniCharts.push(chartOrFallback("miniChart" + i, (canvas) => new Chart(canvas, {
+        type: "line",
+        data: {
+          labels,
+          datasets: [
+            { label: "SAT-01", data: d1.map((p) => p.telemetry[m.key]), borderColor: m.color, backgroundColor: m.color + "33", fill: true, tension: 0.35, pointRadius: 0, borderWidth: 2 },
+            { label: "SAT-02", data: d2.map((p) => p.telemetry[m.key]), borderColor: "#7f8ff5", fill: false, tension: 0.35, pointRadius: 0, borderWidth: 1.3 },
+          ],
+        },
+        options: {
+          maintainAspectRatio: false, responsive: true,
+          plugins: { legend: { display: false }, tooltip: { mode: "index", intersect: false } },
+          scales: {
+            x: { grid: { display: false }, ticks: { color: "#8a93a8", font: { size: 10 }, maxTicksLimit: 6 } },
+            y: { grid: { color: "rgba(148,163,184,0.12)" }, ticks: { color: "#8a93a8", font: { size: 10 } } },
+          },
+        },
+      })));
+    });
+  }
+
+  function renderOverview() {
+    const fleet = dashboard.fleet;
+    const overview = [
+      { label: "Total Satellites", value: fleet.total_satellites, accent: "var(--primary)" },
+      { label: "Healthy", value: fleet.healthy, accent: "var(--nominal)" },
+      { label: "Warning", value: fleet.warning, accent: "var(--warning)" },
+      { label: "Critical", value: fleet.critical, accent: "var(--critical)" },
+      { label: "Active Alerts", value: dashboard.active_alerts, accent: "var(--caution)" },
+      { label: "Telemetry Interval", value: dashboard.telemetry_interval_seconds + "s", accent: "var(--chart-2)" },
+    ];
+    document.getElementById("overviewGrid").innerHTML = overview.map((o) => `
+      <div class="overview-cell">
+        <div class="top"><span>${o.label}</span></div>
+        <p class="val" style="color:${o.accent}">${o.value}</p>
+      </div>`).join("");
+    document.getElementById("overviewSubtitle").textContent = `Fleet state · updated ${dashboard.last_updated ? new Date(dashboard.last_updated).toISOString().slice(11, 19) + " UTC" : "—"}`;
+
+    const worst = dashboard.satellites.slice().sort((a, b) => {
+      const rank = { CRITICAL: 4, HIGH: 3, MEDIUM: 2, LOW: 1, NORMAL: 0 };
+      return (rank[b.priority] || 0) - (rank[a.priority] || 0);
+    })[0];
+    if (worst && worst.priority !== "NORMAL") {
+      document.getElementById("aiNote").innerHTML =
+        `Random Forest health classifier flags <span class="text-critical">${worst.id}</span> as ${worst.health_prediction} `
+        + `with ${worst.health_confidence}% confidence (Isolation Forest anomaly status: ${worst.anomaly_status}). `
+        + `Recommended: review the Alert Center for the current priority (${worst.priority}) and next steps.`;
+    } else {
+      document.getElementById("aiNote").textContent = "All satellites are within nominal envelopes. No health or anomaly concerns detected on the latest telemetry cycle.";
+    }
+  }
+
+  async function refresh() {
+    dashboard = await api.getDashboard();
+    renderOrbit();
+    renderLegend();
+    renderTelemetryDetails();
+    renderOverview();
+    renderMiniCharts();
+  }
+
+  refresh();
+  setInterval(refresh, 30000);
+</script>
+</body>
+</html>

@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Resolution Center | Aurora Ops</title>
+<meta name="description" content="Guided satellite incident investigation: detected problem, probable cause, AI-recommended actions and lifecycle tracking." />
+<link rel="stylesheet" href="universal.css" />
+<style>
+  .incident-tile { border-radius: var(--radius-xl); padding: 1rem; text-align: left; cursor: pointer; border: 1px solid var(--panel-border); background: linear-gradient(160deg, oklch(0.28 0.04 255 / 55%), oklch(0.19 0.03 258 / 72%)); }
+  .incident-tile.active { border-color: oklch(0.78 0.145 205 / 50%); }
+  .incident-tile .row1 { display: flex; align-items: center; justify-content: space-between; }
+  .incident-tile .progress-track { margin-top: .75rem; height: .25rem; width: 100%; overflow: hidden; border-radius: 999px; background: oklch(0.26 0.03 256 / 40%); }
+  .incident-tile .progress-fill { height: 100%; border-radius: 999px; }
+  .timeline { display: flex; align-items: center; padding: 1.25rem 1.5rem; }
+  .timeline-step { display: flex; flex: 1; align-items: center; }
+  .timeline-step:last-child { flex: none; }
+  .timeline-node { display: flex; flex-direction: column; align-items: center; gap: .375rem; }
+  .timeline-circle { display: grid; place-items: center; width: 1.75rem; height: 1.75rem; border-radius: 999px; border: 1px solid; }
+  .timeline-circle svg { width: .875rem; height: .875rem; }
+  .timeline-label { font-size: .6rem; text-transform: uppercase; letter-spacing: .12em; white-space: nowrap; }
+  .timeline-connector { margin: 0 .5rem 1.25rem; height: 1px; flex: 1; }
+  .incident-body { display: grid; gap: 1.25rem; grid-template-columns: repeat(2, 1fr); border-top: 1px solid oklch(0.35 0.035 255 / 30%); padding: 1.25rem 1.5rem; }
+  .incident-actions-box { border-radius: var(--radius-xl); border: 1px solid oklch(0.78 0.145 205 / 25%); background: oklch(0.78 0.145 205 / 6%); padding: 1rem; }
+  .incident-actions-box ol { margin: .75rem 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: .625rem; }
+  .incident-actions-box li { display: flex; gap: .75rem; font-size: .875rem; }
+  .action-num { display: grid; place-items: center; flex-shrink: 0; width: 1.25rem; height: 1.25rem; border-radius: var(--radius-md); border: 1px solid oklch(0.78 0.145 205 / 40%); background: oklch(0.78 0.145 205 / 12%); font-family: var(--font-mono); font-size: .62rem; color: var(--primary); }
+  .stage-buttons { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; border-top: 1px solid oklch(0.35 0.035 255 / 30%); padding: 1rem 1.5rem; }
+  .stage-btn { border-radius: var(--radius-lg); border: 1px solid var(--border); background: none; padding: .375rem .75rem; font-size: .64rem; font-weight: 600; text-transform: uppercase; letter-spacing: .1em; color: var(--muted-foreground); cursor: pointer; }
+  .stage-btn.active { border-color: oklch(0.78 0.145 205 / 50%); background: oklch(0.78 0.145 205 / 15%); color: var(--primary); }
+  .empty-state { padding: 3rem 1.5rem; text-align: center; color: var(--muted-foreground); }
+  @media (max-width: 900px) { .incident-body { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<script src="app.js"></script>
+<script src="api.js"></script>
+<script>
+  const pageRoot = renderShell("Resolution Center");
+  const INCIDENT_STAGES = ["Detected", "Prioritized", "Investigating", "Action Recommended", "Resolved"];
+  let incidents = [];
+  let openId = null;
+
+  async function refresh() {
+    const res = await api.getIncidents();
+    incidents = res.incidents;
+    if (!openId || !incidents.find((i) => i.id === openId)) openId = incidents.length ? incidents[0].id : null;
+    render();
+  }
+
+  function render() {
+    const active = incidents.filter((i) => i.stage < 4).length;
+
+    if (!incidents.length) {
+      pageRoot.innerHTML = `
+        <div class="stack">
+          <div class="page-header">
+            <div><h1>Resolution Center</h1><p class="subtitle">Intelligent anomaly investigation and guided corrective action</p></div>
+            <span class="badge">${ICONS.wrench} 0 active incidents</span>
+          </div>
+          <section class="panel glass"><div class="empty-state">No HIGH or CRITICAL priority incidents have been raised yet. Incidents are opened automatically here whenever the Alert Center escalates a satellite to HIGH or CRITICAL.</div></section>
+        </div>`;
+      return;
+    }
+
+    const open = incidents.find((i) => i.id === openId);
+
+    pageRoot.innerHTML = `
+      <div class="stack">
+        <div class="page-header">
+          <div><h1>Resolution Center</h1><p class="subtitle">Intelligent anomaly investigation and guided corrective action</p></div>
+          <span class="badge">${ICONS.wrench} ${active} active incidents</span>
+        </div>
+
+        <div class="grid-4" id="incidentTiles"></div>
+
+        <section class="panel glass">
+          <div class="panel-header"><div><h3>${open.id} · ${open.issue}</h3><p class="subtitle">${open.satellite} · ${open.subsystem} · opened ${new Date(open.opened_at).toISOString().replace("T", " ").slice(0, 19)} UTC</p></div>${statusChipHTML(open.severity)}</div>
+          <div class="timeline" id="timeline"></div>
+          <div class="incident-body">
+            <div class="stack" style="gap:1rem">
+              <section><p class="font-display" style="font-size:.66rem;font-weight:600;text-transform:uppercase;letter-spacing:.16em;color:var(--critical)">Detected Problem</p><p style="margin-top:.5rem;font-size:.875rem;line-height:1.6;color:oklch(0.95 0.012 240 / 85%)">${escapeHTML(open.problem)}</p></section>
+              <section><p class="font-display" style="display:flex;align-items:center;gap:.5rem;font-size:.66rem;font-weight:600;text-transform:uppercase;letter-spacing:.16em;color:var(--warning)">💡 Possible Cause</p><p style="margin-top:.5rem;font-size:.875rem;line-height:1.6;color:oklch(0.95 0.012 240 / 85%)">${escapeHTML(open.cause)}</p></section>
+            </div>
+            <div class="incident-actions-box">
+              <p class="font-display" style="display:flex;align-items:center;gap:.5rem;font-size:.66rem;font-weight:600;text-transform:uppercase;letter-spacing:.16em;color:var(--primary)">✓ Recommended Actions</p>
+              <ol>${open.actions.map((a, i) => `<li><span class="action-num">${i + 1}</span>${escapeHTML(a)}</li>`).join("")}</ol>
+            </div>
+          </div>
+          <div class="stage-buttons">
+            <span class="text-muted" style="font-size:.62rem;text-transform:uppercase;letter-spacing:.16em">Update status</span>
+            ${INCIDENT_STAGES.map((s, i) => `<button type="button" class="stage-btn ${i === open.stage ? "active" : ""}" data-stage="${i}">${s}</button>`).join("")}
+          </div>
+        </section>
+      </div>
+    `;
+
+    document.getElementById("incidentTiles").innerHTML = incidents.map((i) => {
+      const color = statusColorVar(i.severity);
+      return `
+      <button type="button" class="incident-tile glass-hover ${openId === i.id ? "active" : ""}" data-tile="${i.id}">
+        <div class="row1"><span class="mono-num text-primary" style="font-size:.68rem">${i.id}</span>${statusChipHTML(i.severity, false)}</div>
+        <p class="font-display" style="margin-top:.5rem;font-size:.875rem;font-weight:600">${i.issue}</p>
+        <p class="text-muted" style="margin-top:.25rem;font-size:.7rem">${i.satellite} · ${i.subsystem}</p>
+        <div class="progress-track"><div class="progress-fill" style="width:${((i.stage + 1) / 5) * 100}%;background:${color};box-shadow:0 0 8px ${color}"></div></div>
+        <p class="text-muted" style="margin-top:.5rem;font-size:.64rem;text-transform:uppercase;letter-spacing:.12em">${i.status}</p>
+      </button>`;
+    }).join("");
+    document.querySelectorAll("[data-tile]").forEach((b) => b.addEventListener("click", () => { openId = b.dataset.tile; render(); }));
+
+    document.getElementById("timeline").innerHTML = INCIDENT_STAGES.map((s, i) => {
+      const done = i < open.stage, current = i === open.stage;
+      const circleStyle = done ? "border-color:oklch(0.78 0.17 155 / 60%);background:oklch(0.78 0.17 155 / 15%);color:var(--nominal)"
+        : current ? "border-color:oklch(0.78 0.145 205 / 60%);background:oklch(0.78 0.145 205 / 15%);color:var(--primary)"
+        : "border-color:var(--border);background:oklch(0.16 0.03 258 / 40%);color:var(--muted-foreground)";
+      const labelColor = i <= open.stage ? "color:oklch(0.95 0.012 240 / 85%)" : "color:var(--muted-foreground)";
+      const icon = done ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.801 10A10 10 0 1 1 17 3.335"/><path d="m9 11 3 3L22 4"/></svg>' : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="1" fill="currentColor"/></svg>';
+      const connector = i < INCIDENT_STAGES.length - 1
+        ? `<span class="timeline-connector" style="background:${i < open.stage ? "var(--nominal)" : "var(--grid)"};box-shadow:${i < open.stage ? "0 0 8px var(--nominal)" : "none"}"></span>` : "";
+      return `<div class="timeline-step">
+        <div class="timeline-node">
+          <span class="timeline-circle" style="${circleStyle}">${icon}</span>
+          <span class="timeline-label" style="${labelColor}">${s}</span>
+        </div>
+        ${connector}
+      </div>`;
+    }).join("");
+
+    document.querySelectorAll("[data-stage]").forEach((b) => b.addEventListener("click", async () => {
+      const stage = Number(b.dataset.stage);
+      try {
+        const updated = await api.setIncidentStage(openId, stage);
+        incidents = incidents.map((i) => (i.id === updated.id ? updated : i));
+        render();
+      } catch (e) { /* backend unreachable -- next poll resyncs */ }
+    }));
+  }
+
+  refresh();
+  setInterval(refresh, 30000);
+</script>
+</body>
+</html>

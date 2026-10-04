@@ -1,0 +1,38 @@
+================================================================================
+XGBOOST - SATELLITE HEALTH CLASSIFIER
+================================================================================
+Train: (7200, 7) | Test: (1800, 7)
+scale_pos_weight (neg/pos ratio) used to handle class imbalance: 0.607
+
+-- Hyperparameter search (5-fold CV on training data) --
+Best params: {'learning_rate': 0.05, 'max_depth': 3, 'n_estimators': 200}
+Best CV ROC-AUC: 0.8045
+
+-- Test set performance --
+              precision    recall  f1-score   support
+
+           0      0.663     0.690     0.676       680
+           1      0.807     0.787     0.797      1120
+
+    accuracy                          0.751      1800
+   macro avg      0.735     0.739     0.737      1800
+weighted avg      0.753     0.751     0.751      1800
+
+Test ROC-AUC: 0.8102
+
+Confusion matrix:
+[[469 211]
+ [238 882]]
+
+-- Feature importances --
+thermal_control_status     0.4118
+attitude_control_error     0.1498
+solar_panel_temperature    0.1479
+battery_voltage            0.1458
+data_transmission_rate     0.0615
+time_since_launch          0.0577
+orbital_altitude           0.0256
+
+Saved plots: xgb_confusion_matrix.png, xgb_roc_curve.png, xgb_feature_importance.png
+
+Saved trained model to: artifacts/model_xgboost.joblib

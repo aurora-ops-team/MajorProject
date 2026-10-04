@@ -1,0 +1,31 @@
+================================================================================
+ONE-CLASS SVM - SATELLITE ANOMALY DETECTOR
+================================================================================
+Training rows (healthy only): 4480
+Full dataset for scoring/evaluation: 9000 rows
+Requires scaled input (from Step 2's StandardScaler) -- One-Class SVM, like
+regular SVM, is sensitive to feature scale.
+
+nu parameter set to 0.378 (approximates expected anomaly fraction)
+
+Model trained.
+
+-- Evaluation against TRUE health label (evaluation only, not used in training) --
+ROC-AUC (anomaly score vs true unhealthy label): 0.6781
+              precision    recall  f1-score   support
+
+   Unhealthy      0.510     0.656     0.574      3400
+     Healthy      0.747     0.618     0.676      5600
+
+    accuracy                          0.632      9000
+   macro avg      0.629     0.637     0.625      9000
+weighted avg      0.658     0.632     0.638      9000
+
+
+Confusion matrix:
+[[2230 1170]
+ [2141 3459]]
+
+Saved plots: ocsvm_score_distribution.png, ocsvm_roc_curve.png, ocsvm_confusion_matrix.png
+
+Saved trained model to: artifacts/model_oneclass_svm.joblib

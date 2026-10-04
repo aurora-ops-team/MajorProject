@@ -1,0 +1,31 @@
+================================================================================
+AUTOENCODER (MLPRegressor, bottleneck architecture) - ANOMALY DETECTOR
+================================================================================
+Training rows (healthy only): 4480
+Input dimensionality: 7 features
+Architecture: 7 -> 4 -> 2 -> 4 -> 7 (2-unit bottleneck)
+
+Training complete. Iterations run: 199
+Final training loss: 0.27313
+
+ROC-AUC (reconstruction error vs true unhealthy label): 0.6705
+Reconstruction error threshold (top 37.8% flagged as anomalous): 0.67854
+
+-- Evaluation against TRUE health label (evaluation only, not used in training) --
+              precision    recall  f1-score   support
+
+   Unhealthy      0.531     0.531     0.531      3400
+     Healthy      0.715     0.715     0.715      5600
+
+    accuracy                          0.646      9000
+   macro avg      0.623     0.623     0.623      9000
+weighted avg      0.646     0.646     0.646      9000
+
+
+Confusion matrix:
+[[1806 1594]
+ [1594 4006]]
+Saved: autoencoder_loss_curve.png
+Saved plots: autoencoder_error_distribution.png, autoencoder_roc_curve.png, autoencoder_confusion_matrix.png
+
+Saved trained model to: artifacts/model_autoencoder.joblib

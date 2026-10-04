@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Alert Center & Prioritisation | Aurora Ops</title>
+<meta name="description" content="Prioritised satellite alert queue with AI rationale, subsystem filters and operator actions for the Aurora constellation." />
+<link rel="stylesheet" href="universal.css" />
+<style>
+  .filters-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: .75rem; border-bottom: 1px solid oklch(0.35 0.035 255 / 30%); padding: 1rem 1.25rem; }
+  @media (max-width: 900px) { .filters-row { grid-template-columns: repeat(2, 1fr); } }
+  .review-pill { border-radius: var(--radius-md); border: 1px solid oklch(0.78 0.145 205 / 40%); background: oklch(0.78 0.145 205 / 10%); padding: .25rem .625rem; font-size: .62rem; font-weight: 600; text-transform: uppercase; letter-spacing: .1em; color: var(--primary); }
+  .detail-drawer { position: fixed; inset-block: 0; right: 0; z-index: 40; width: min(430px, 100vw); overflow-y: auto; border-left: 1px solid var(--border); background: oklch(0.16 0.03 258 / 92%); backdrop-filter: blur(20px); display: none; }
+  .detail-drawer.open { display: block; }
+  .detail-drawer-head { display: flex; align-items: flex-start; justify-content: space-between; border-bottom: 1px solid var(--border); padding: 1rem 1.25rem; }
+  .detail-drawer-body { padding: 1rem 1.25rem; display: flex; flex-direction: column; gap: .375rem; }
+  .detail-drawer-row { display: flex; align-items: center; justify-content: space-between; border-radius: var(--radius-lg); border: 1px solid oklch(0.35 0.035 255 / 40%); background: oklch(0.21 0.032 258 / 35%); padding: .5rem .75rem; }
+  .rationale-box { margin: 0 1.25rem; border-radius: var(--radius-lg); border: 1px solid oklch(0.78 0.145 205 / 30%); background: oklch(0.78 0.145 205 / 8%); padding: 1rem; }
+  .rationale-box p.title { font-family: var(--font-display); font-size: .66rem; font-weight: 600; text-transform: uppercase; letter-spacing: .16em; color: var(--primary); }
+  .rationale-box p.body { margin-top: .5rem; font-size: .75rem; line-height: 1.6; color: oklch(0.95 0.012 240 / 85%); }
+  .drawer-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: .5rem; padding: 1.25rem; }
+  .drawer-actions button:disabled { opacity: .4; cursor: not-allowed; }
+  .backdrop { position: fixed; inset: 0; z-index: 35; background: rgba(0,0,0,0.3); display: none; }
+  .backdrop.open { display: block; }
+</style>
+</head>
+<body>
+<script src="app.js"></script>
+<script src="api.js"></script>
+<script>
+  const pageRoot = renderShell("Alert Center & Prioritisation");
+  const FILTERS = {
+    satellite: ["All", "SAT-01", "SAT-02"],
+    priority: ["All", "CRITICAL", "HIGH", "MEDIUM", "LOW"],
+    subsystem: ["All", "Electrical Power", "Attitude Control", "Thermal Control", "Communications", "Orbit / GNC", "General"],
+    status: ["All", "OPEN", "ACKNOWLEDGED", "INVESTIGATING", "RESOLVED"],
+  };
+  let f = { satellite: "All", priority: "All", subsystem: "All", status: "All" };
+  let selectedId = null;
+  let ALERTS = [];
+
+  pageRoot.innerHTML = `
+    <div class="stack">
+      <div class="page-header"><div><h1>Alert Center</h1><p class="subtitle">AI-prioritised alert queue across the Aurora constellation</p></div></div>
+
+      <div class="grid-4" id="counterCards"></div>
+
+      <section class="panel glass">
+        <div class="panel-header"><div><h3>Alert Queue</h3><p class="subtitle" id="queueSubtitle"></p></div></div>
+        <div class="filters-row" id="filtersRow"></div>
+        <div class="table-wrap"><table class="data-table" style="min-width:980px">
+          <thead><tr><th>Priority</th><th>Satellite</th><th>Subsystem</th><th>Detected Issue</th><th>Anomaly Score</th><th>Timestamp</th><th>Status</th><th>Action</th></tr></thead>
+          <tbody id="alertsBody"></tbody>
+        </table></div>
+      </section>
+    </div>
+
+    <div class="backdrop" id="backdrop"></div>
+    <div class="detail-drawer glass" id="detailDrawer"></div>
+  `;
+
+  function renderCounters() {
+    const counts = {
+      CRITICAL: ALERTS.filter((a) => a.priority === "CRITICAL" && a.status !== "RESOLVED").length,
+      HIGH: ALERTS.filter((a) => a.priority === "HIGH" && a.status !== "RESOLVED").length,
+      MEDIUM: ALERTS.filter((a) => a.priority === "MEDIUM" && a.status !== "RESOLVED").length,
+      LOW: ALERTS.filter((a) => a.priority === "LOW" && a.status !== "RESOLVED").length,
+    };
+    document.getElementById("counterCards").innerHTML = `
+      <div class="metric-card glass glass-hover"><div class="top-line" style="background:linear-gradient(90deg,transparent,var(--critical),transparent)"></div><div class="label"><span>Critical Alerts</span><span class="icon" style="color:var(--critical)">${ICONS.alert}</span></div><p class="value" style="color:var(--critical)">${counts.CRITICAL}</p><p class="hint">Immediate operator action</p></div>
+      <div class="metric-card glass glass-hover"><div class="top-line" style="background:linear-gradient(90deg,transparent,var(--caution),transparent)"></div><div class="label"><span>High Priority</span><span class="icon" style="color:var(--caution)">${ICONS.shield}</span></div><p class="value" style="color:var(--caution)">${counts.HIGH}</p><p class="hint">Action within this pass</p></div>
+      <div class="metric-card glass glass-hover"><div class="top-line" style="background:linear-gradient(90deg,transparent,var(--warning),transparent)"></div><div class="label"><span>Medium Priority</span><span class="icon" style="color:var(--warning)">${ICONS.alert}</span></div><p class="value" style="color:var(--warning)">${counts.MEDIUM}</p><p class="hint">Monitor trend</p></div>
+      <div class="metric-card glass glass-hover"><div class="top-line" style="background:linear-gradient(90deg,transparent,var(--info),transparent)"></div><div class="label"><span>Low Priority</span><span class="icon" style="color:var(--info)">${ICONS.info}</span></div><p class="value" style="color:var(--info)">${counts.LOW}</p><p class="hint">Informational</p></div>
+    `;
+  }
+
+  function renderFilters() {
+    const labels = { satellite: "Satellite", priority: "Priority", subsystem: "Subsystem", status: "Status" };
+    document.getElementById("filtersRow").innerHTML = Object.keys(FILTERS).map((key) => `
+      <label class="field">
+        <span class="field-label">${labels[key]}</span>
+        <select data-filter="${key}">
+          ${FILTERS[key].map((o) => `<option value="${o}" ${f[key] === o ? "selected" : ""}>${o}</option>`).join("")}
+        </select>
+      </label>`).join("");
+    document.querySelectorAll("[data-filter]").forEach((sel) => sel.addEventListener("change", (e) => { f[sel.dataset.filter] = e.target.value; renderRows(); }));
+  }
+
+  function renderRows() {
+    const rows = ALERTS.filter((a) =>
+      (f.satellite === "All" || a.satellite === f.satellite) &&
+      (f.priority === "All" || a.priority === f.priority) &&
+      (f.subsystem === "All" || a.subsystem === f.subsystem) &&
+      (f.status === "All" || a.status === f.status)
+    );
+    document.getElementById("queueSubtitle").textContent = `${rows.length} of ${ALERTS.length} alerts shown`;
+    document.getElementById("alertsBody").innerHTML = rows.length ? rows.map((a) => `
+      <tr class="clickable ${selectedId === a.id ? "selected" : ""}" data-id="${a.id}">
+        <td>${statusChipHTML(a.priority)}</td>
+        <td class="mono-num">${a.satellite}</td>
+        <td>${a.subsystem}</td>
+        <td>${a.issue}</td>
+        <td class="mono-num">${a.anomaly_score.toFixed(2)}</td>
+        <td class="mono-num text-muted">${new Date(a.timestamp).toISOString().replace("T", " ").slice(0, 19)} UTC</td>
+        <td>${statusChipHTML(a.status, false)}</td>
+        <td><span class="review-pill">Review</span></td>
+      </tr>`).join("") : `<tr><td colspan="8" style="text-align:center;padding:2.5rem 0;color:var(--muted-foreground)">No alerts match the current filters.</td></tr>`;
+    document.querySelectorAll("[data-id]").forEach((tr) => tr.addEventListener("click", () => { selectedId = tr.dataset.id; renderRows(); renderDrawer(); }));
+  }
+
+  function renderDrawer() {
+    const drawer = document.getElementById("detailDrawer");
+    const backdrop = document.getElementById("backdrop");
+    const selected = ALERTS.find((a) => a.id === selectedId);
+    if (!selected) { drawer.classList.remove("open"); backdrop.classList.remove("open"); return; }
+    const rows = [
+      ["Alert ID", selected.id], ["Satellite", selected.satellite], ["Subsystem", selected.subsystem],
+      ["Detected Parameter", selected.parameter], ["Current Value", selected.current], ["Expected Value", selected.expected],
+      ["Deviation", selected.deviation], ["Anomaly Score", selected.anomaly_score.toFixed(2)],
+      ["Detection Time", new Date(selected.timestamp).toISOString().replace("T", " ").slice(0, 19) + " UTC"],
+    ];
+    const resolved = selected.status === "RESOLVED";
+    drawer.innerHTML = `
+      <div class="detail-drawer-head">
+        <div><p class="font-display" style="font-size:.8rem;font-weight:600;text-transform:uppercase;letter-spacing:.16em">${selected.issue}</p><p class="mono-num text-muted" style="margin-top:.25rem;font-size:.75rem">${selected.id}</p></div>
+        <button type="button" id="closeDrawer" class="icon-btn" aria-label="Close alert detail">${ICONS.x}</button>
+      </div>
+      <div class="detail-drawer-body">
+        <div style="display:flex;gap:.5rem;padding-bottom:.5rem">${statusChipHTML(selected.priority)}${statusChipHTML(selected.status)}</div>
+        ${rows.map(([k, v]) => `<div class="detail-drawer-row"><span class="text-muted" style="font-size:.68rem;text-transform:uppercase;letter-spacing:.12em">${k}</span><span class="mono-num" style="font-size:.75rem">${v}</span></div>`).join("")}
+      </div>
+      <div class="rationale-box"><p class="title">Why this alert was prioritised</p><p class="body">${escapeHTML(selected.rationale)}</p></div>
+      <div class="drawer-actions">
+        <button type="button" class="btn" id="ackBtn" ${resolved ? "disabled" : ""}>Acknowledge</button>
+        <button type="button" class="btn btn-caution" id="invBtn" ${resolved ? "disabled" : ""}>Investigate</button>
+        <button type="button" class="btn btn-nominal" id="resBtn" ${resolved ? "disabled" : ""}>Resolve</button>
+      </div>`;
+    drawer.classList.add("open");
+    backdrop.classList.add("open");
+    document.getElementById("closeDrawer").addEventListener("click", () => { selectedId = null; renderRows(); renderDrawer(); });
+
+    async function doAction(fn) {
+      try {
+        const updated = await fn(selected.id);
+        ALERTS = ALERTS.map((a) => (a.id === updated.id ? updated : a));
+        renderCounters(); renderRows(); renderDrawer();
+      } catch (e) { /* backend unreachable -- ignore, next poll will resync */ }
+    }
+    document.getElementById("ackBtn").addEventListener("click", () => doAction(api.acknowledgeAlert));
+    document.getElementById("invBtn").addEventListener("click", () => doAction(api.investigateAlert));
+    document.getElementById("resBtn").addEventListener("click", () => doAction(api.resolveAlert));
+  }
+  document.getElementById("backdrop").addEventListener("click", () => { selectedId = null; renderRows(); renderDrawer(); });
+
+  async function refresh() {
+    const { alerts } = await api.getAlerts();
+    ALERTS = alerts;
+    renderCounters();
+    renderRows();
+    renderDrawer();
+  }
+
+  renderFilters();
+  refresh();
+  setInterval(refresh, 30000);
+</script>
+</body>
+</html>

@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>System Information | AI-Based Autonomous Satellite Operation Assistant</title>
+<meta name="description" content="Project overview, architecture, modules, technology stack, dataset and AI models behind the autonomous satellite operation assistant." />
+<link rel="stylesheet" href="universal.css" />
+<style>
+  .module-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: .75rem; padding: 1.25rem; }
+  .module-cell { border-radius: var(--radius-lg); border: 1px solid oklch(0.35 0.035 255 / 45%); background: oklch(0.16 0.03 258 / 35%); padding: 1rem; }
+  .module-cell .icon { display: grid; place-items: center; width: 2rem; height: 2rem; border-radius: var(--radius-lg); border: 1px solid oklch(0.78 0.145 205 / 40%); background: oklch(0.78 0.145 205 / 12%); color: var(--primary); }
+  .module-cell .icon svg { width: 1rem; height: 1rem; }
+  .module-cell p.title { margin-top: .625rem; font-family: var(--font-display); font-size: .875rem; font-weight: 600; }
+  .module-cell p.text { margin-top: .25rem; font-size: .72rem; line-height: 1.6; color: var(--muted-foreground); }
+  .stack-list > div { display: flex; align-items: flex-start; gap: .75rem; padding: .75rem 1.25rem; border-bottom: 1px solid oklch(0.35 0.035 255 / 30%); }
+  .stack-list > div:last-child { border-bottom: none; }
+  .stack-list .icon { margin-top: .125rem; color: var(--primary); width: 1rem; height: 1rem; }
+  .dataset-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: .75rem; padding: 1.25rem; }
+  .dataset-cell { border-radius: var(--radius-lg); border: 1px solid oklch(0.35 0.035 255 / 45%); background: oklch(0.16 0.03 258 / 35%); padding: .75rem; }
+  .arch-diagram { overflow-x: auto; padding: 1.5rem; }
+  .arch-diagram pre { min-width: 700px; font-family: var(--font-mono); font-size: .68rem; line-height: 1.5; color: oklch(0.95 0.012 240 / 80%); margin: 0; }
+  .models-list > div { display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding: .75rem 1.25rem; border-bottom: 1px solid oklch(0.35 0.035 255 / 30%); }
+  .models-list > div:last-child { border-bottom: none; }
+  @media (max-width: 900px) { .module-grid, .dataset-grid { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<script src="app.js"></script>
+<script src="api.js"></script>
+<script>
+  const pageRoot = renderShell("System Information");
+
+  const MODULES = [
+    { icon: ICONS.satellite, title: "Telemetry Simulation", text: "Backend replays satellite_1/2_telemetry.csv one row at a time, one row every 30s, so every connected client sees the same reading at the same time." },
+    { icon: ICONS.brain, title: "Health Prediction", text: "A Random Forest classifier maps each 7-feature telemetry row to Healthy / Unhealthy with a confidence score." },
+    { icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12"/><path d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17"/></svg>', title: "Anomaly Detection", text: "An Isolation Forest, trained only on healthy rows, flags each telemetry sample as Normal or Anomaly with a rescaled 0-1 score." },
+    { icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v3"/><path d="M21 16v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-3"/><path d="M3 12h18"/></svg>', title: "Decision & Alert Engine", text: "A rule-based layer combines the health prediction and anomaly status into a NORMAL / LOW / MEDIUM / HIGH / CRITICAL priority and opens/updates an alert with a plain-language rationale." },
+    { icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9a2 2 0 0 1-2 2H6l-4 4V4c0-1.1.9-2 2-2h8a2 2 0 0 1 2 2z"/><path d="M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1"/></svg>', title: "Mission Assistant", text: "The chat widget answers questions by calling the same live REST API the dashboards use, so its answers are always grounded in current telemetry, alerts and model data." },
+    { icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><path d="M6 6h.01"/><path d="M6 18h.01"/></svg>', title: "Resolution Engine", text: "Every HIGH/CRITICAL alert automatically opens an incident with a rule-based probable cause and a ranked corrective-action checklist, tracked through 5 stages." },
+  ];
+
+  const STACK = [
+    { label: "Frontend", value: "Vanilla HTML / CSS / JavaScript, Chart.js for time-series and metric charts", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M15 2v2M9 2v2M15 20v2M9 20v2M20 15h2M20 9h2M2 15h2M2 9h2"/></svg>' },
+    { label: "Backend", value: "Flask + Flask-CORS REST API, all state held in-memory (no external DB service)", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><path d="M6 6h.01"/><path d="M6 18h.01"/></svg>' },
+    { label: "Machine Learning", value: "scikit-learn 1.5.1 — Random Forest, XGBoost, SVM, Isolation Forest, One-Class SVM, MLP-based Autoencoder", icon: ICONS.brain },
+    { label: "Data store", value: "In-memory Python state (rolling telemetry history + alert/incident queues) — runs entirely locally, no external database", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/></svg>' },
+    { label: "Mission Assistant", value: "Rule-based responder grounded on the same live REST endpoints as the dashboards (no external LLM call)", icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9a2 2 0 0 1-2 2H6l-4 4V4c0-1.1.9-2 2-2h8a2 2 0 0 1 2 2z"/><path d="M18 9h2a2 2 0 0 1 2 2v11l-4-4h-6a2 2 0 0 1-2-2v-1"/></svg>' },
+  ];
+
+  async function init() {
+    const info = await api.getSystemInfo();
+    const { models } = await api.getModels();
+
+    const paramRows = Object.entries(info.feature_ranges).map(([key, r]) => {
+      let envelope;
+      if (!r.is_risk_factor) envelope = `${r.min} – ${r.max} ${r.unit}`.trim() + " (informational only)";
+      else if (key === "thermal_control_status") envelope = "NOMINAL";
+      else if (key === "attitude_control_error") envelope = `< ${r.max}${r.unit}`;
+      else envelope = `${r.min} – ${r.max} ${r.unit}`.trim();
+      return [r.label, envelope, r.subsystem];
+    });
+
+    pageRoot.innerHTML = `
+      <div class="stack">
+        <div class="page-header">
+          <div><h1>System Information</h1><p class="subtitle">AI-Based Autonomous Satellite Operation Assistant — project documentation</p></div>
+          ${statusChipHTML(info.system_status)}
+        </div>
+
+        <section class="panel glass" style="padding:1.5rem">
+          <h2 class="font-display text-glow" style="font-size:1.125rem;font-weight:600">AI-Based Autonomous Satellite Operation Assistant</h2>
+          <p style="margin-top:.75rem;max-width:56rem;font-size:.875rem;line-height:1.7;color:oklch(0.95 0.012 240 / 85%)">
+            The platform gives ground operators a decision-support console for a two-satellite constellation
+            (${info.dataset.satellites.join(", ")}). Self-generated synthetic telemetry is replayed every
+            ${info.telemetry_interval_seconds} seconds, classified by a Random Forest health model, screened by an
+            Isolation Forest anomaly detector, and converted into prioritised, explainable alerts by a rule-based
+            decision engine. Each HIGH/CRITICAL alert escalates into a tracked incident with a probable cause and
+            recommended actions, while the mission assistant answers natural-language questions grounded in the same
+            live telemetry, alerts and model data.
+          </p>
+        </section>
+
+        <section class="panel glass">
+          <div class="panel-header"><h3>Architecture</h3><p class="subtitle">End-to-end data and inference flow</p></div>
+          <div class="arch-diagram"><pre>${info.architecture.map((s, i) => `${String(i + 1).padStart(2, "0")}. ${s}`).join("\n")}</pre></div>
+        </section>
+
+        <div class="grid-2">
+          <section class="panel glass">
+            <div class="panel-header"><h3>System Modules</h3></div>
+            <div class="module-grid">
+              ${MODULES.map((m) => `<div class="module-cell"><span class="icon">${m.icon}</span><p class="title">${m.title}</p><p class="text">${m.text}</p></div>`).join("")}
+            </div>
+          </section>
+
+          <div class="stack">
+            <section class="panel glass">
+              <div class="panel-header"><h3>Technology Stack</h3></div>
+              <div class="stack-list">
+                ${STACK.map((s) => `<div><span class="icon">${s.icon}</span><div><p class="text-muted" style="font-size:.62rem;text-transform:uppercase;letter-spacing:.16em">${s.label}</p><p style="margin-top:.125rem;font-size:.75rem">${s.value}</p></div></div>`).join("")}
+              </div>
+            </section>
+
+            <section class="panel glass">
+              <div class="panel-header"><h3>Dataset Information</h3></div>
+              <div class="dataset-grid">
+                ${[["Source", info.dataset.source], ["Satellites", info.dataset.satellites.join(", ")],
+                   ["Rows per satellite", Object.values(info.dataset.rows_per_satellite).join(" / ")],
+                   ["Supervised split", info.dataset.supervised_train_test],
+                   ["Anomaly training rows", info.dataset.anomaly_train_rows],
+                   ["Feature count", String(info.dataset.feature_count)]]
+                  .map(([k, v]) => `<div class="dataset-cell"><p class="text-muted" style="font-size:.58rem;text-transform:uppercase;letter-spacing:.14em">${k}</p><p style="margin-top:.25rem;font-size:.75rem">${v}</p></div>`).join("")}
+              </div>
+            </section>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <section class="panel glass">
+            <div class="panel-header"><h3>Supported Satellite Parameters</h3></div>
+            <div class="table-wrap"><table class="data-table">
+              <thead><tr><th>Parameter</th><th>Operating Envelope</th><th>Subsystem</th></tr></thead>
+              <tbody>${paramRows.map(([p, r, s]) => `<tr><td>${p}</td><td class="mono-num text-primary">${r}</td><td class="text-muted">${s}</td></tr>`).join("")}</tbody>
+            </table></div>
+          </section>
+
+          <section class="panel glass">
+            <div class="panel-header"><h3>AI Models Used</h3><p class="subtitle">Active: ${info.active_models.health_prediction} (health) · ${info.active_models.anomaly_detection} (anomaly)</p></div>
+            <div class="models-list">
+              ${models.map((m) => `<div><div><p style="font-size:.875rem;font-weight:500">${m.name}</p><p class="text-muted" style="font-size:.68rem">${m.type}</p></div><span class="mono-num text-primary" style="font-size:.75rem">ROC-AUC ${m.roc_auc.toFixed(3)}</span></div>`).join("")}
+            </div>
+          </section>
+        </div>
+      </div>
+    `;
+  }
+
+  init();
+  setInterval(init, 30000);
+</script>
+</body>
+</html>

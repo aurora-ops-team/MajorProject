@@ -1,0 +1,31 @@
+================================================================================
+ISOLATION FOREST - SATELLITE ANOMALY DETECTOR
+================================================================================
+Training rows (healthy only): 4480
+Full dataset for scoring/evaluation: 9000 rows
+Trained UNSUPERVISED on healthy rows only. True labels are used ONLY to
+evaluate afterward, never seen by the model during fitting.
+
+contamination parameter set to 0.378 (the actual unhealthy fraction in the full dataset -- used only to calibrate the decision threshold, not as a training label)
+
+Model trained.
+
+-- Evaluation against TRUE health label (evaluation only, not used in training) --
+ROC-AUC (anomaly score vs true unhealthy label): 0.7244
+              precision    recall  f1-score   support
+
+   Unhealthy      0.530     0.709     0.607      3400
+     Healthy      0.778     0.618     0.689      5600
+
+    accuracy                          0.653      9000
+   macro avg      0.654     0.664     0.648      9000
+weighted avg      0.684     0.653     0.658      9000
+
+
+Confusion matrix:
+[[2410  990]
+ [2137 3463]]
+
+Saved plots: isoforest_score_distribution.png, isoforest_roc_curve.png, isoforest_confusion_matrix.png
+
+Saved trained model to: artifacts/model_isolation_forest.joblib

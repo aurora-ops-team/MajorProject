@@ -1,0 +1,14 @@
+Flask==3.0.3
+Flask-Cors==4.0.1
+pandas==2.2.2
+numpy==1.26.4
+scikit-learn==1.5.1
+joblib==1.4.2
+
+# NOTE on versions:
+# The .joblib model/preprocessor files in model_artifacts/ were trained
+# with scikit-learn 1.5.1. Loading them with a different (especially
+# newer) scikit-learn version can raise errors such as:
+#   AttributeError: Can't get attribute '_RemainderColsList' on ...
+# Keep scikit-learn pinned to 1.5.1 unless you retrain and re-save the
+# models yourself.

@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Satellite Telemetry Monitoring | Aurora Ops</title>
+<meta name="description" content="Historical and live telemetry for SAT-01 and SAT-02: battery voltage, temperature, altitude, attitude error and downlink rate." />
+<link rel="stylesheet" href="universal.css" />
+<script src="vendor/chart.umd.js"></script>
+<style>
+  .header-controls { display: flex; flex-wrap: wrap; align-items: flex-end; gap: .75rem; }
+  .param-chart-body { height: 180px; padding: .75rem .5rem; }
+  .table-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+  tr.row-critical td { background: rgba(220,60,60,0.08); }
+</style>
+</head>
+<body>
+<script src="app.js"></script>
+<script src="api.js"></script>
+<script>
+  const pageRoot = renderShell("Satellite Telemetry Monitoring");
+  let satId = "SAT-01", query = "", desc = true;
+  let paramCharts = {};
+  let currentHistory = [];
+
+  pageRoot.innerHTML = `
+    <div class="stack">
+      <div class="page-header">
+        <div><h1>Satellite Telemetry</h1><p class="subtitle">Live and historical housekeeping telemetry with abnormal-value highlighting</p></div>
+        <div class="header-controls">
+          <div class="glass btn-toggle-group" id="satToggle"></div>
+        </div>
+      </div>
+
+      <div class="grid-6" id="metricCards"></div>
+
+      <div class="grid-2" id="paramCharts"></div>
+
+      <section class="panel glass">
+        <div class="panel-header">
+          <div><h3>Telemetry Records</h3><p class="subtitle" id="recordsSubtitle"></p></div>
+          <div class="table-toolbar">
+            <div class="field search-wrap">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+              <input type="text" id="searchInput" class="input" placeholder="Search timestamp or status" />
+            </div>
+            <button type="button" id="sortBtn" class="btn">Sort Newest</button>
+            <button type="button" class="btn btn-primary">Export CSV</button>
+          </div>
+        </div>
+        <div class="table-wrap" style="max-height:440px;overflow:auto">
+          <table class="data-table" style="min-width:980px">
+            <thead><tr>
+              <th>Timestamp</th><th>Satellite</th><th>Battery V</th><th>Temp °C</th><th>Altitude km</th><th>Attitude °</th><th>Rate Mbps</th><th>Thermal</th><th>Health</th>
+            </tr></thead>
+            <tbody id="recordsBody"></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  `;
+
+  function renderToggles() {
+    document.getElementById("satToggle").innerHTML = SATELLITE_IDS.map((id) =>
+      `<button type="button" class="btn-toggle ${satId === id ? "active" : ""}" data-sat="${id}">${id}</button>`).join("");
+    document.querySelectorAll("[data-sat]").forEach((b) => b.addEventListener("click", () => { satId = b.dataset.sat; refresh(); }));
+  }
+
+  function renderMetricCards(telemetryAnnotated) {
+    const t = telemetryAnnotated;
+    const cards = [
+      { label: "Battery Voltage", value: `${t.battery_voltage.value.toFixed(2)} V`, ok: t.battery_voltage.status === "NORMAL" },
+      { label: "Panel Temperature", value: `${t.solar_panel_temperature.value.toFixed(1)} °C`, ok: t.solar_panel_temperature.status === "NORMAL" },
+      { label: "Orbital Altitude", value: `${t.orbital_altitude.value.toFixed(1)} km`, ok: true },
+      { label: "Attitude Error", value: `${t.attitude_control_error.value.toFixed(2)}°`, ok: t.attitude_control_error.status === "NORMAL" },
+      { label: "Transmission Rate", value: `${t.data_transmission_rate.value.toFixed(1)} Mbps`, ok: t.data_transmission_rate.status === "NORMAL" },
+      { label: "Thermal Status", value: t.thermal_control_status.value === 1 ? "NOMINAL" : "DEGRADED", ok: t.thermal_control_status.status === "NORMAL" },
+    ];
+    document.getElementById("metricCards").innerHTML = cards.map((c) => `
+      <div class="metric-card glass glass-hover">
+        <div class="top-line" style="background:linear-gradient(90deg,transparent,${c.ok ? "var(--primary)" : "var(--critical)"},transparent)"></div>
+        <div class="label"><span>${c.label}</span></div>
+        <p class="value" style="color:${c.ok ? "var(--primary)" : "var(--critical)"}">${c.value}</p>
+        <p class="hint">${c.ok ? "Within envelope" : "Outside envelope"}</p>
+      </div>`).join("");
+  }
+
+  function renderParamCharts(history) {
+    document.getElementById("paramCharts").innerHTML = PARAMETERS.map((p, i) => `
+      <section class="panel glass">
+        <div class="panel-header"><h3>${p.label}</h3><span class="mono-num text-muted" style="font-size:.75rem">${p.unit}</span></div>
+        <div class="param-chart-body"><canvas id="paramChart${i}"></canvas></div>
+      </section>`).join("");
+    Object.values(paramCharts).forEach((c) => c && c.destroy());
+    paramCharts = {};
+    const colorMap = { "var(--chart-1)": "#67d9f0", "var(--chart-2)": "#7f8ff5", "var(--chart-3)": "#7fe0a8", "var(--chart-4)": "#e8c368", "var(--chart-5)": "#e0685f" };
+    const labels = history.map((h) => new Date(h.timestamp).toISOString().slice(11, 19));
+    PARAMETERS.forEach((p, i) => {
+      const color = colorMap[p.color] || "#67d9f0";
+      paramCharts[p.key] = chartOrFallback("paramChart" + i, (canvas) => new Chart(canvas, {
+        type: "line",
+        data: { labels, datasets: [{ label: p.label, data: history.map((h) => h.telemetry[p.key]), borderColor: color, backgroundColor: color + "2e", fill: true, tension: 0.35, pointRadius: 0, borderWidth: 2 }] },
+        options: {
+          maintainAspectRatio: false, responsive: true,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { grid: { display: false }, ticks: { color: "#8a93a8", font: { size: 10 }, maxTicksLimit: 8 } },
+            y: { grid: { color: "rgba(148,163,184,0.12)" }, ticks: { color: "#8a93a8", font: { size: 10 } } },
+          },
+        },
+      }));
+    });
+  }
+
+  function renderTable(history) {
+    let list = history.map((h) => ({
+      time: new Date(h.timestamp).toISOString().replace("T", " ").slice(0, 19) + " UTC",
+      battery_voltage: h.telemetry.battery_voltage,
+      solar_panel_temperature: h.telemetry.solar_panel_temperature,
+      orbital_altitude: h.telemetry.orbital_altitude,
+      attitude_control_error: h.telemetry.attitude_control_error,
+      data_transmission_rate: h.telemetry.data_transmission_rate,
+      thermal: h.telemetry.thermal_control_status === 1 ? "NOMINAL" : "DEGRADED",
+      health: h.prediction.priority,
+    }));
+    if (query) list = list.filter((r) => r.time.includes(query) || r.health.toLowerCase().includes(query.toLowerCase()));
+    if (desc) list = list.slice().reverse();
+
+    document.getElementById("recordsSubtitle").textContent = `${list.length} samples · ${satId}`;
+    document.getElementById("recordsBody").innerHTML = list.map((r) => `
+      <tr class="${r.health === "CRITICAL" ? "row-critical" : ""}">
+        <td class="mono-num text-muted">${r.time}</td>
+        <td class="mono-num">${satId}</td>
+        <td class="mono-num" style="color:${r.battery_voltage < 22.02 ? "var(--critical)" : ""}">${r.battery_voltage.toFixed(2)}</td>
+        <td class="mono-num" style="color:${(r.solar_panel_temperature > 39.89 || r.solar_panel_temperature < -40.11) ? "var(--warning)" : ""}">${r.solar_panel_temperature.toFixed(1)}</td>
+        <td class="mono-num">${r.orbital_altitude.toFixed(2)}</td>
+        <td class="mono-num" style="color:${r.attitude_control_error > 3.99 ? "var(--critical)" : ""}">${r.attitude_control_error.toFixed(2)}</td>
+        <td class="mono-num">${r.data_transmission_rate.toFixed(1)}</td>
+        <td>${statusChipHTML(r.thermal, false)}</td>
+        <td>${statusChipHTML(r.health)}</td>
+      </tr>`).join("");
+  }
+
+  async function refresh() {
+    renderToggles();
+    const [telemetryRes, historyRes] = await Promise.all([
+      api.getSatelliteTelemetry(satId),
+      api.getSatelliteHistory(satId, 100),
+    ]);
+    currentHistory = historyRes.history;
+    renderMetricCards(telemetryRes.telemetry);
+    renderParamCharts(currentHistory);
+    renderTable(currentHistory);
+  }
+
+  document.getElementById("searchInput").addEventListener("input", (e) => { query = e.target.value; renderTable(currentHistory); });
+  document.getElementById("sortBtn").addEventListener("click", () => { desc = !desc; document.getElementById("sortBtn").textContent = "Sort " + (desc ? "Newest" : "Oldest"); renderTable(currentHistory); });
+
+  refresh();
+  setInterval(refresh, 30000);
+</script>
+</body>
+</html>
