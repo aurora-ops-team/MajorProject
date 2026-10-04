@@ -33,7 +33,7 @@ HTML/CSS/JavaScript application that polls that API.
   OpenAI-compatible provider and a deterministic local fallback.
 
 ### Frontend
-
+- roshan
 - Dashboard with live fleet overview, realistic Earth imagery, orbit paths, and
   animated satellite markers.
 - SAT-01/SAT-02 hover and focus tooltips with current telemetry and priority.
