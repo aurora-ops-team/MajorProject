@@ -197,8 +197,11 @@ assistant uses its grounded local fallback.
 
 ### 1. Install backend dependencies
 
-Use Python with a compatible scientific stack. The model artifacts were saved
-with scikit-learn 1.5.1, so keep that version unless the models are retrained.
+Use Python 3.12 with the compatible scientific stack. The repository includes
+`backend/runtime.txt` for Render because the pinned pandas/NumPy versions and
+the model artifacts were validated with Python 3.12. The model artifacts were
+saved with scikit-learn 1.5.1, so keep that version unless the models are
+retrained.
 
 ```powershell
 cd backend
@@ -409,7 +412,8 @@ simulation and in-memory operational state.
 2. In Render, choose **New > Blueprint**, select the repository, and approve
    the `render.yaml` configuration.
 3. Confirm the service root directory is `backend`.
-4. Render installs `backend/requirements.txt` and starts:
+4. Render reads `backend/runtime.txt` and uses Python 3.12.8. It then installs
+   `backend/requirements.txt` and starts:
 
    ```text
    gunicorn --bind 0.0.0.0:$PORT app:app
