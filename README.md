@@ -1,214 +1,400 @@
-# AI-Based Autonomous Satellite Operation Assistant — Integrated Build
+# Aurora Ops
 
-This is the fully integrated project: the Flask backend (`backend/`) serves
-live predictions from your actual trained models, and the frontend
-(`frontend/`) has been rewired to consume that backend instead of the
-original hardcoded mock data.
+Aurora Ops is an AI-based satellite operations console. It combines a
+Flask REST backend, live telemetry replay, trained health/anomaly models, a
+mission-control frontend, operational alert workflows, and a read-only
+satellite assistant.
 
-## What changed vs. your original files
+The integrated application is designed for local development and demonstration.
+The backend is the source of truth for telemetry, predictions, alerts,
+incidents, model metadata, and chatbot context. The frontend is a static
+HTML/CSS/JavaScript application that polls that API.
 
-- **`frontend/app.js`** — removed all mock data (`SATELLITES`,
-  `generateTelemetry()`, `PARAMETERS` mock values, `COMPARISON`,
-  `DETECTED_ANOMALIES`, `ALERTS`, `INCIDENTS`, `MODELS`, `BEST_MODEL`, the
-  ROC/history/feature-importance generators). Kept the layout shell,
-  sidebar, topbar clock, starfield background and chat widget.
-- **`frontend/api.js`** (new) — a small fetch wrapper around every backend
-  endpoint. Every page loads this after `app.js`.
-- **All 7 HTML pages** (`index.html`, `monitoring.html`, `anomalies.html`,
-  `alerts.html`, `resolution.html`, `models.html`, `system.html`) — rewired
-  to call `api.js` instead of reading mock arrays. Visual design, layout and
-  CSS are unchanged.
-- **`frontend/vendor/chart.umd.js`** (new) — Chart.js is now bundled
-  locally instead of loaded from a CDN. The charts on Dashboard, Satellite
-  Monitoring, Anomaly Detection and Model Performance were previously
-  loading `chart.umd.min.js` from `cdnjs.cloudflare.com`; on a machine
-  without internet access that script silently never loads, `Chart` stays
-  undefined, and every chart panel renders blank (everything else —
-  gauges, tables, alerts — still works, since only the Chart.js-based
-  panels depend on it). All 4 pages now load `vendor/chart.umd.js`
-  instead, so the whole app works fully offline. If a chart is still
-  blank for some other reason, `app.js`'s `chartOrFallback()` helper now
-  shows a visible message in that panel instead of leaving it silently
-  empty, and logs the real error to the browser console.
-- **`backend/`** (new) — a Flask REST API, built from scratch, that:
-  - Replays `satellite_1_telemetry.csv` / `satellite_2_telemetry.csv` one
-    row at a time, advancing **one row every 30 seconds**, so every
-    connected browser tab sees the same telemetry at the same time.
-  - Runs your real `preprocessor.joblib` + `model_rf.joblib` (health
-    prediction) and `model_isolation_forest.joblib` (anomaly detection) on
-    every row.
-  - Combines both predictions with a rule-based decision engine into a
-    NORMAL / LOW / MEDIUM / HIGH / CRITICAL priority.
-  - Generates alerts and incidents with a plain-language rationale, and
-    tracks their operator-facing lifecycle (acknowledge / investigate /
-    resolve, and 5-stage incident tracking) — all in backend memory, so
-    every page and every client agree on the current state.
-  - Serves the real training reports/metrics and plot images from
-    `ModelTraining/` for the Model Performance page.
+## What is implemented
 
-## A correction I made while integrating
+### Backend
 
-Your frontend's original mock data used illustrative operating envelopes
-(e.g. orbital altitude "540–560 km") that don't match the actual dataset
-your team generated (`dataset_generation/regenerate_dataset.py`), where
-orbital altitude ranges ~700–1900 km and is **not** a real risk factor at
-all (near-zero correlation with health, lowest Random Forest feature
-importance). I pulled the *real* thresholds straight from
-`dataset_generation/dataset_regeneration_report.txt` instead:
+- Replays `SAT-01` and `SAT-02` telemetry from CSV files.
+- Advances the shared simulation by one row every 30 seconds.
+- Loads the trained preprocessing pipeline and model artifacts from
+  `backend/model_artifacts/`.
+- Uses Random Forest for supervised health prediction.
+- Uses Isolation Forest for anomaly detection.
+- Combines health and anomaly results into a final priority:
+  `NORMAL`, `LOW`, `MEDIUM`, `HIGH`, or `CRITICAL`.
+- Creates alerts from risk conditions and manages alert transitions:
+  acknowledge, investigate, and resolve.
+- Creates incidents for high-priority conditions and supports a five-stage
+  resolution workflow.
+- Serves model reports, model metadata, and plot images.
+- Keeps operational state in backend memory so every browser tab sees the same
+  current state. State resets when Flask restarts.
+- Provides a read-only chatbot API with optional DeepSeek or another
+  OpenAI-compatible provider and a deterministic local fallback.
 
-| Parameter | Real risk threshold used by the labelling rule |
-|---|---|
-| Battery Voltage | risk if `< 22.02 V` |
-| Solar Panel Temperature | risk if `< -40.11°C` or `> 39.89°C` |
-| Attitude Control Error | risk if `> 3.99°` |
-| Data Transmission Rate | risk if `< 28.14 Mbps` |
-| Thermal Control Status | risk if `!= NOMINAL (1)` |
-| Orbital Altitude | **not a risk factor** — shown for information only |
+### Frontend
 
-These live in `backend/config.py` (`FEATURE_RANGES`) and drive every
-alert/anomaly-comparison table in the app.
+- Dashboard with live fleet overview, realistic Earth imagery, orbit paths, and
+  animated satellite markers.
+- SAT-01/SAT-02 hover and focus tooltips with current telemetry and priority.
+- Satellite Monitoring page with current metrics, historical charts, searchable
+  and sortable records, and CSV export.
+- Anomaly Detection page with Isolation Forest status and parameter comparisons.
+- Alert Center with operator lifecycle controls.
+- Resolution Center with incident stage progression.
+- Model Performance page with metrics and training plots.
+- System Information page with live architecture, threshold, and system data.
+- Shared mission assistant chat widget.
+- Local Chart.js bundle so charts do not require a CDN connection.
 
-## How to run it
+## Architecture and data flow
 
-### 1. Backend
+```text
+CSV telemetry
+    |
+    v
+simulation_service.py  -- shared 30-second replay and history
+    |
+    +--> prediction_service.py  -- Random Forest health + confidence
+    |
+    +--> anomaly_service.py     -- Isolation Forest status + score
+    |
+    v
+decision_service.py    -- health/anomaly combination and priority
+    |
+    +--> alert_service.py      -- active alerts and lifecycle
+    +--> incident_service.py   -- high-priority incidents and stages
+    +--> chat_service.py       -- grounded context for fallback/LLM replies
+    |
+    v
+Flask routes (/api/*)
+    |
+    v
+frontend/api.js and the seven frontend pages
+```
 
-```bash
+The frontend never owns authoritative telemetry or alert state. It requests
+current values from the API and refreshes the relevant views.
+
+## Telemetry and model semantics
+
+The seven model features must remain in the trained order defined in
+`backend/config.py`:
+
+1. `time_since_launch`
+2. `orbital_altitude`
+3. `battery_voltage`
+4. `solar_panel_temperature`
+5. `attitude_control_error`
+6. `data_transmission_rate`
+7. `thermal_control_status`
+
+The risk thresholds used by the dataset labelling rules and UI highlighting
+are:
+
+| Parameter | Risk condition |
+| --- | --- |
+| Battery Voltage | `< 22.02 V` |
+| Solar Panel Temperature | `< -40.11 °C` or `> 39.89 °C` |
+| Attitude Control Error | `> 3.99°` |
+| Data Transmission Rate | `< 28.14 Mbps` |
+| Thermal Control Status | `0` / not nominal |
+| Orbital Altitude | Informational only; not a health risk factor |
+
+Thermal Status is a subsystem telemetry input. It is not a second health
+prediction. Health is the overall supervised model result derived from the
+telemetry features, while the final priority also considers the anomaly
+detector:
+
+```text
+Healthy + Normal anomaly       -> NORMAL
+Healthy + Anomaly              -> LOW
+Unhealthy + Normal anomaly     -> MEDIUM
+Unhealthy + Normal + high confidence -> HIGH
+Unhealthy + Anomaly            -> CRITICAL
+```
+
+The Monitoring table intentionally renders Thermal Status as a distinct
+subsystem indicator and Health as the overall priority chip.
+
+## Dashboard orbit behavior
+
+The dashboard orbit view is implemented in
+[`frontend/index.html`](frontend/index.html).
+
+- The realistic Earth is loaded from
+  `frontend/assets/earth-realistic-crop.png`.
+- The original attached artwork is retained as
+  `frontend/assets/earth-realistic.png`.
+- Orbit paths remain CSS elements independent of the Earth image.
+- Satellite markers continue to rotate using CSS animation.
+- Hover/focus changes marker scale in place; it does not rebuild the animated
+  orbit DOM. This prevents animation resets.
+- Orbit spinner wrappers do not intercept pointer events, so SAT-01 and SAT-02
+  receive the correct hover events.
+- Clicking a satellite opens its telemetry details panel.
+
+## Chatbot
+
+The shared chat UI is created by `renderShell()` and `initChatbot()` in
+[`frontend/app.js`](frontend/app.js). Requests are sent through
+[`frontend/api.js`](frontend/api.js) to `POST /api/chat`.
+
+The backend builds a current, structured context containing:
+
+- SAT-01 and SAT-02 telemetry and prediction summaries.
+- Health prediction, confidence, anomaly status, anomaly score, priority, and
+  update timestamp.
+- Active unresolved alerts.
+- Incidents and their current stages.
+- System status and active alert count.
+- Best health/anomaly models and the complete trained model list.
+
+### Provider behavior
+
+1. If a complete OpenAI-compatible configuration is present, the backend sends
+   the grounded context and conversation to the configured provider.
+2. DeepSeek is supported through its OpenAI-compatible chat completions URL.
+3. If configuration is missing, the provider request fails, the response is
+   malformed, or the response is empty, the backend uses the deterministic
+   fallback responder.
+4. The API response identifies whether `provider` is `llm` or `fallback` and
+   whether `fallback` is `true` or `false`.
+5. The frontend checks `GET /api/chat/status` and displays a provider-aware
+   welcome message without receiving the API key.
+
+The chatbot is read-only. It cannot acknowledge alerts, modify incidents,
+change telemetry, or execute operational commands. User messages are limited
+to 2,000 characters and each request accepts at most 12 messages.
+
+### DeepSeek configuration
+
+Copy the safe template:
+
+```powershell
+Copy-Item backend\.env.example backend\.env
+```
+
+Edit `backend\.env`:
+
+```dotenv
+AURORA_CHAT_PROVIDER=openai-compatible
+AURORA_CHAT_API_URL=https://api.deepseek.com/chat/completions
+AURORA_CHAT_API_KEY=replace-with-your-server-side-key
+AURORA_CHAT_MODEL=deepseek-chat
+AURORA_CHAT_TIMEOUT_SECONDS=15
+```
+
+`backend/config.py` loads `backend/.env` with `python-dotenv`. The real
+`.env` is ignored by Git and the API key is never returned to the browser.
+Rotate a key immediately if it has been exposed in chat, logs, screenshots, or
+source control.
+
+If credentials are not configured, the application still works and the
+assistant uses its grounded local fallback.
+
+## Running the application
+
+### 1. Install backend dependencies
+
+Use Python with a compatible scientific stack. The model artifacts were saved
+with scikit-learn 1.5.1, so keep that version unless the models are retrained.
+
+```powershell
 cd backend
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
+```
+
+The main dependencies are Flask, Flask-Cors, pandas, NumPy, joblib,
+scikit-learn 1.5.1, and python-dotenv.
+
+### 2. Start Flask
+
+From `backend`:
+
+```powershell
 python app.py
 ```
 
-This starts the API on **http://localhost:5000** and immediately begins the
-30-second telemetry simulation for SAT-01 and SAT-02.
+The API listens on `http://localhost:5000`. The simulation starts when the
+application module loads.
 
-> **Important:** `requirements.txt` pins `scikit-learn==1.5.1` because your
-> `.joblib` model files were saved with that version. Loading them with a
-> different (especially newer) scikit-learn version can throw an
-> `AttributeError` when unpickling. If you retrain and re-save the models
-> yourself, you can relax this pin.
+Basic checks:
 
-Quick check it's alive:
-
-```bash
+```powershell
 curl http://localhost:5000/api/health
 curl http://localhost:5000/api/dashboard
+curl http://localhost:5000/api/chat/status
 ```
 
-### 2. Frontend
+### 3. Start the static frontend
 
-The frontend is static HTML/CSS/JS — no build step. Two ways to run it:
+Opening `frontend/index.html` directly works for local use. A static server is
+recommended because it avoids browser `file://` restrictions:
 
-- **Directly**: open `frontend/index.html` in a browser (works because
-  `api.js` defaults to `http://localhost:5000`).
-- **Via a local static server** (recommended, avoids any `file://` quirks):
-  ```bash
-  cd frontend
-  python -m http.server 8080
-  ```
-  then visit `http://localhost:8080`.
+```powershell
+cd frontend
+python -m http.server 8080
+```
 
-If your backend runs somewhere other than `localhost:5000`, set it before
-loading `api.js`, e.g. add this to a page's `<head>`:
+Open `http://localhost:8080`.
+
+If the backend is hosted elsewhere, define this before `api.js` loads:
+
 ```html
-<script>window.AURORA_API_BASE = "http://your-host:5000";</script>
+<script>
+  window.AURORA_API_BASE = "http://your-host:5000";
+</script>
 ```
 
-### 3. Using it
+## Using the frontend
 
-- **Dashboard** — live orbital view, telemetry gauges and fleet overview
-  for SAT-01/SAT-02.
-- **Satellite Monitoring** — per-satellite historical charts + a
-  searchable/sortable telemetry table.
-- **Anomaly Detection** — Isolation Forest status per satellite, a
-  parameter-by-parameter comparison table, and a chart with anomalous
-  points highlighted.
-- **Alert Center** — the live, backend-owned alert queue. Acknowledge,
-  Investigate and Resolve buttons call the API and persist for every
-  client.
-- **Resolution Center** — incidents auto-opened from HIGH/CRITICAL alerts,
-  with a 5-stage lifecycle you can advance.
-- **Model Performance** — real accuracy/precision/recall/ROC-AUC/confusion
-  matrices for all 6 trained models, plus the actual plot images generated
-  by your training scripts.
-- **System Information** — architecture, tech stack, dataset facts and
-  parameter envelopes, all pulled live from the backend.
-- **Mission Assistant** (chat bubble, bottom-right) — sends read-only
-  conversations to `POST /api/chat`. The backend builds a current,
-  structured operational context and uses an optional OpenAI-compatible LLM
-  provider when configured. Without a provider, it uses a deterministic
-  data-grounded fallback, so local development still works without an API
-  key.
+| Page | Purpose |
+| --- | --- |
+| Dashboard | Fleet status, orbit view, Earth, satellite tooltips, details, and charts |
+| Satellite Monitoring | Current metrics, historical telemetry, filtering, sorting, and CSV export |
+| Anomaly Detection | Isolation Forest results and risk-parameter comparisons |
+| Alert Center | Active alerts and acknowledge/investigate/resolve operations |
+| Resolution Center | Incident list and five-stage resolution workflow |
+| Model Performance | Six trained model metrics, reports, and plot images |
+| System Information | Backend architecture, telemetry facts, thresholds, and system status |
 
-### Optional LLM-backed chatbot
+### Telemetry CSV export
 
-The chatbot is read-only: it cannot acknowledge alerts, change incidents, or
-modify satellite state. To enable an OpenAI-compatible provider, configure
-these backend environment variables before starting Flask:
+The **Export CSV** button on the Monitoring page uses the currently selected satellite and exports
+the records currently visible after search and sort are applied. The generated
+file includes timestamp, satellite ID, all telemetry values, Thermal Status,
+and Health. Files use this naming pattern:
 
-```bash
-set AURORA_CHAT_PROVIDER=openai-compatible
-set AURORA_CHAT_API_URL=https://your-provider.example/v1/chat/completions
-set AURORA_CHAT_API_KEY=your-server-side-key
-set AURORA_CHAT_MODEL=your-model-name
+```text
+sat-01-telemetry-YYYY-MM-DD.csv
 ```
 
-On PowerShell, use `$env:AURORA_CHAT_PROVIDER = "openai-compatible"` and the
-same `$env:` form for the other variables. The API key is never sent to the
-browser. If the provider is missing, unavailable, or returns an invalid
-response, the backend returns a grounded deterministic fallback instead.
-Messages are limited to 2,000 characters each and 12 messages per request.
+## REST API reference
+
+### Health and satellite data
+
+```text
+GET  /api/health
+GET  /api/dashboard
+GET  /api/satellites
+GET  /api/satellite/<satellite_id>
+GET  /api/satellite/<satellite_id>/telemetry
+GET  /api/satellite/<satellite_id>/history?limit=100
+```
+
+### Anomalies
+
+```text
+GET /api/anomalies
+GET /api/anomalies/<satellite_id>
+GET /api/anomalies/<satellite_id>/history?parameter=<name>&limit=100
+```
+
+### Alerts and incidents
+
+```text
+GET  /api/alerts
+GET  /api/alerts/<alert_id>
+POST /api/alerts/<alert_id>/acknowledge
+POST /api/alerts/<alert_id>/investigate
+POST /api/alerts/<alert_id>/resolve
+
+GET  /api/incidents
+GET  /api/incidents/<incident_id>
+POST /api/incidents/<incident_id>/status
+```
+
+The incident status request supplies a JSON body containing the next stage,
+for example `{ "stage": "Investigation" }`.
+
+### Models, system, and chat
+
+```text
+GET  /api/models
+GET  /api/models/<model_name>
+GET  /api/models/plots/<filename>
+GET  /api/system/info
+GET  /api/chat/status
+POST /api/chat
+```
+
+Chat requests use:
+
+```json
+{
+  "messages": [
+    { "role": "user", "content": "What is the status of SAT-01?" }
+  ]
+}
+```
+
+Only `user` and `assistant` roles are accepted, the array must be non-empty,
+and the final message must be from the user.
 
 ## Project layout
 
-```
+```text
 backend/
-  app.py                    entry point
-  config.py                 feature order, envelopes, simulation settings
-  .env                      local chatbot configuration (not committed)
-  .env.example              chatbot configuration template
-  requirements.txt
-  data/                     satellite_1/2_telemetry.csv (copied from project root)
-  model_artifacts/          preprocessor + all 6 trained models (copied from step2/ and ModelTraining/)
-  model_reports/            training reports (copied from ModelTraining/reports)
-  model_plots/              training plot PNGs (copied from ModelTraining/plots)
-  services/
-    simulation_service.py   30s telemetry loop, single source of truth
-    prediction_service.py   Random Forest health prediction
-    anomaly_service.py      Isolation Forest anomaly detection
-    decision_service.py     rule-based priority engine
-    alert_service.py        alert generation + lifecycle
-    incident_service.py     incident generation + lifecycle
-    history_service.py      in-memory rolling telemetry history
-    model_service.py        real training metrics for the Model page
-  routes/
-    satellite_routes.py     dashboard/satellites/telemetry/history/anomalies
-    alert_routes.py         alerts + incidents
-    model_routes.py         models + plot images
-    system_routes.py        system info
+  app.py                    Flask entry point and blueprint registration
+  config.py                 Paths, thresholds, simulation, and chat settings
+  .env.example              Safe chatbot configuration template
+  requirements.txt          Pinned Python dependencies
+  data/                     SAT-01/SAT-02 telemetry CSV files
+  model_artifacts/          Preprocessor and six trained models
+  model_reports/            Training reports
+  model_plots/              Training plot PNGs
+  routes/                   REST endpoint blueprints
+  services/                 Simulation, ML, alerts, incidents, models, chat
 frontend/
-  index.html                Dashboard
-  monitoring.html           Satellite Telemetry Monitoring
-  anomalies.html            Anomaly Detection Center
+  index.html                Dashboard and orbital visualization
+  monitoring.html           Telemetry table, charts, and CSV export
+  anomalies.html            Anomaly Detection page
   alerts.html               Alert Center
   resolution.html           Resolution Center
-  models.html               Model Training & Performance Center
-  system.html                System Information
-  app.js                    shared shell + chat widget (mock data removed)
-  api.js                    REST client used by every page
-  universal.css              unchanged design system
+  models.html               Model Performance page
+  system.html               System Information page
+  app.js                    Shared shell, constants, and chat widget
+  api.js                    Shared REST client
+  universal.css             Shared design system
+  assets/                   Earth imagery used by the dashboard
+  vendor/chart.umd.js       Local Chart.js bundle
 ```
 
-## Known limitations / next steps
+## Validation and troubleshooting
 
-- The "Mission Assistant" chatbot is intentionally simple and rule-based
-  (keyword-matched, calling the live API) rather than a true
-  retrieval-augmented LLM, matching what was feasible to verify and test
-  in this integration pass.
-- All alert/incident/history state is in-memory and resets when the Flask
-  process restarts, per your requirement to avoid an external database
-  service. If you need persistence across restarts, the simplest next step
-  would be periodically dumping `services/*_service.py` in-memory state to
-  a local SQLite file.
-- CORS is currently wide open (`origins: "*"`) for local development
-  convenience; tighten `config.CORS_ORIGINS` before deploying anywhere
-  public.
+Validate the inline page scripts after frontend edits:
+
+```powershell
+$file = "frontend\monitoring.html"
+$script = [regex]::Matches((Get-Content -Raw $file), "(?s)<script>(.*?)</script>") |
+  Select-Object -Last 1
+$encoded = [Convert]::ToBase64String(
+  [Text.Encoding]::UTF8.GetBytes($script.Groups[1].Value)
+)
+node -e "new Function(Buffer.from(process.argv[1],'base64').toString())" -- $encoded
+```
+
+Common issues:
+
+- **Charts are blank:** confirm `frontend/vendor/chart.umd.js` exists and the
+  browser console has no script error.
+- **API requests fail:** start Flask first and confirm port 5000 is reachable.
+- **Model loading fails:** use the pinned scikit-learn 1.5.1 dependency or
+  retrain and re-save the artifacts with the installed version.
+- **Chatbot says fallback:** check `GET /api/chat/status`, the `.env` values,
+  the provider URL, and the Flask console for provider failures.
+- **Frontend opens but shows no data:** use the local static server and verify
+  the browser can reach `http://localhost:5000`.
+
+## Limitations and deployment notes
+
+- Telemetry, alert, incident, and history state is in memory and resets when
+  Flask restarts. Add persistent storage before production deployment.
+- CORS is currently configured as `*` for local development. Restrict
+  `CORS_ORIGINS` before exposing the API publicly.
+- The chatbot is read-only and grounded only in the context assembled by the
+  backend. It should report unavailable data rather than inventing values.
+- Do not commit `backend/.env`, API keys, model secrets, or other credentials.
+- The included model artifacts and thresholds are project-specific; retrain
+  and revalidate them when the telemetry schema or data distribution changes.
