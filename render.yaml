@@ -4,10 +4,12 @@ services:
     runtime: python
     plan: free
     rootDir: backend
-    buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn --bind 0.0.0.0:$PORT app:app
+    buildCommand: pip install poetry==2.1.3 && poetry install --only main --no-interaction --no-ansi
+    startCommand: poetry run gunicorn --bind 0.0.0.0:$PORT app:app
     healthCheckPath: /api/health
     envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.8"
       - key: AURORA_DEBUG
         value: "false"
       - key: AURORA_CORS_ORIGINS

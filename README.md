@@ -197,26 +197,36 @@ assistant uses its grounded local fallback.
 
 ### 1. Install backend dependencies
 
-Use Python 3.12 with the compatible scientific stack. The repository includes
-`backend/runtime.txt` for Render because the pinned pandas/NumPy versions and
-the model artifacts were validated with Python 3.12. The model artifacts were
-saved with scikit-learn 1.5.1, so keep that version unless the models are
-retrained.
+Use Python 3.12 with the compatible scientific stack. The backend now uses
+`pyproject.toml` plus the committed `poetry.lock` as the reproducible
+dependency definition. The repository also includes `runtime.txt` and
+`backend/runtime.txt` for Render because the dependency set and model artifacts
+were validated with Python 3.12. The model artifacts were saved with
+scikit-learn 1.5.1, so keep that version unless the models are retrained.
 
 ```powershell
 cd backend
-python -m pip install -r requirements.txt
+poetry install
 ```
 
 The main dependencies are Flask, Flask-Cors, pandas, NumPy, joblib,
-scikit-learn 1.5.1, and python-dotenv.
+scikit-learn 1.5.1, python-dotenv, and Gunicorn. The pandas constraint allows
+compatible 2.x releases (`>=2.2,<3`), while `poetry.lock` records the exact
+resolved version used by the team.
+
+If Poetry is not available, `requirements.txt` remains as a compatibility
+fallback:
+
+```powershell
+python -m pip install -r requirements.txt
+```
 
 ### 2. Start Flask
 
 From `backend`:
 
 ```powershell
-python app.py
+poetry run python app.py
 ```
 
 The API listens on `http://localhost:5000`. The simulation starts when the
@@ -342,7 +352,9 @@ backend/
   app.py                    Flask entry point and blueprint registration
   config.py                 Paths, thresholds, simulation, and chat settings
   .env.example              Safe chatbot configuration template
-  requirements.txt          Pinned Python dependencies
+  pyproject.toml             Poetry dependency constraints and project metadata
+  poetry.lock                Exact reproducible dependency resolution
+  requirements.txt           Pip compatibility fallback
   data/                     SAT-01/SAT-02 telemetry CSV files
   model_artifacts/          Preprocessor and six trained models
   model_reports/            Training reports
@@ -412,11 +424,13 @@ simulation and in-memory operational state.
 2. In Render, choose **New > Blueprint**, select the repository, and approve
    the `render.yaml` configuration.
 3. Confirm the service root directory is `backend`.
-4. Render reads `backend/runtime.txt` and uses Python 3.12.8. It then installs
-   `backend/requirements.txt` and starts:
+4. Render uses the explicit `PYTHON_VERSION=3.12.8` setting from
+   `render.yaml` (and the repository runtime pins) instead of its Python 3.14
+   default. It installs the exact committed `backend/poetry.lock`
+   environment and starts:
 
    ```text
-   gunicorn --bind 0.0.0.0:$PORT app:app
+   poetry run gunicorn --bind 0.0.0.0:$PORT app:app
    ```
 
 5. After the first deployment, copy the public HTTPS service URL, for example:
