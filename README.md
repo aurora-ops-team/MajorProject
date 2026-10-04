@@ -387,6 +387,106 @@ Common issues:
 - **Frontend opens but shows no data:** use the local static server and verify
   the browser can reach `http://localhost:5000`.
 
+## Free deployment: GitHub Pages + Render
+
+The recommended free deployment uses GitHub Pages for the static frontend and
+Render for the Flask API:
+
+```text
+GitHub Pages  -->  https://<render-service>.onrender.com
+                    Render Gunicorn API
+```
+
+This avoids trying to run the long-lived Flask telemetry simulator as a
+serverless function. Vercel is suitable for the static frontend, but its
+serverless runtime is not a drop-in host for the current continuously running
+simulation and in-memory operational state.
+
+### Deploy the backend to Render
+
+1. Push the repository to GitHub. The included
+   [`render.yaml`](render.yaml) describes the free web service.
+2. In Render, choose **New > Blueprint**, select the repository, and approve
+   the `render.yaml` configuration.
+3. Confirm the service root directory is `backend`.
+4. Render installs `backend/requirements.txt` and starts:
+
+   ```text
+   gunicorn --bind 0.0.0.0:$PORT app:app
+   ```
+
+5. After the first deployment, copy the public HTTPS service URL, for example:
+
+   ```text
+   https://aurora-ops-api.onrender.com
+   ```
+
+6. Configure these Render environment variables:
+
+   ```text
+   AURORA_CORS_ORIGINS=https://<github-user>.github.io
+   AURORA_DEBUG=false
+   AURORA_CHAT_PROVIDER=fallback
+   ```
+
+   For DeepSeek, additionally set:
+
+   ```text
+   AURORA_CHAT_PROVIDER=openai-compatible
+   AURORA_CHAT_API_URL=https://api.deepseek.com/chat/completions
+   AURORA_CHAT_API_KEY=<secret>
+   AURORA_CHAT_MODEL=deepseek-chat
+   AURORA_CHAT_TIMEOUT_SECONDS=15
+   ```
+
+   Store the API key only in Render's secret environment settings. Never put
+   it in the repository or GitHub Pages files.
+
+7. Verify the backend before deploying the frontend:
+
+   ```powershell
+   curl https://<render-service>.onrender.com/api/health
+   curl https://<render-service>.onrender.com/api/chat/status
+   ```
+
+### Deploy the frontend to GitHub Pages
+
+The repository includes
+`.github/workflows/deploy-pages.yml`. It publishes only `frontend/` and
+injects the backend URL into `frontend/runtime-config.js` during the workflow.
+
+1. In the GitHub repository, enable **Settings > Pages > GitHub Actions**.
+2. Add a repository variable named `RENDER_API_URL` with the complete Render
+   URL and no trailing slash:
+
+   ```text
+   https://<render-service>.onrender.com
+   ```
+
+3. Push to the `roshan` branch or manually run **Deploy frontend to GitHub
+   Pages** from the Actions tab.
+4. Add the resulting Pages origin exactly to Render's
+   `AURORA_CORS_ORIGINS`, then redeploy the backend if required.
+5. Open the Pages URL and confirm the Dashboard, Monitoring, chatbot status,
+   charts, alerts, and CSV export all use the Render API.
+
+The local `frontend/runtime-config.js` defaults to an empty API base, so local
+development continues to use the existing `http://localhost:5000` fallback in
+`frontend/api.js`.
+
+### Free-tier behavior
+
+- Render free services can sleep after inactivity. The first request after
+  sleeping may take longer.
+- The telemetry simulator runs only while the Render process is active.
+- Telemetry history, alerts, incidents, and chatbot context are held in
+  memory. A restart or cold start resets them.
+- Render's local filesystem should not be treated as durable application
+  storage.
+- Before production use, add persistent storage, authentication, rate
+  limiting, restricted CORS, monitoring, and an always-on service if continuous
+  telemetry is required.
+
 ## Limitations and deployment notes
 
 - Telemetry, alert, incident, and history state is in memory and resets when

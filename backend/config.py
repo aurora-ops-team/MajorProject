@@ -111,10 +111,10 @@ HISTORY_MAX_LENGTH = 500
 PRIORITY_LEVELS = ["NORMAL", "LOW", "MEDIUM", "HIGH", "CRITICAL"]
 HIGH_CONFIDENCE_THRESHOLD = 0.80  # health_confidence above this escalates MEDIUM -> HIGH
 
-CORS_ORIGINS = "*"
+CORS_ORIGINS = os.getenv("AURORA_CORS_ORIGINS", "*")
 HOST = "0.0.0.0"
 PORT = 5000
-DEBUG = True
+DEBUG = os.getenv("AURORA_DEBUG", "false").lower() == "true"
 
 # ---------------------------------------------------------------------
 # Chat assistant
