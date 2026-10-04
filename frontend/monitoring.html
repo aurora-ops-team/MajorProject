@@ -12,6 +12,14 @@
   .param-chart-body { height: 180px; padding: .75rem .5rem; }
   .table-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
   tr.row-critical td { background: rgba(220,60,60,0.08); }
+  .telemetry-column-label { display: inline-flex; flex-direction: column; gap: .15rem; }
+  .telemetry-column-label small { font-size: .5rem; font-weight: 500; letter-spacing: .08em; color: var(--primary); }
+  .telemetry-legend { margin-top: .25rem; font-size: .65rem; color: var(--muted-foreground); }
+  .telemetry-legend strong { color: var(--foreground); font-weight: 600; }
+  .thermal-state { display: inline-flex; align-items: center; gap: .45rem; min-width: 6.6rem; border: 1px solid; border-radius: .3rem; padding: .25rem .5rem; font-size: .62rem; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; }
+  .thermal-state::before { content: ""; width: .22rem; height: .85rem; border-radius: .15rem; background: currentColor; box-shadow: 0 0 8px currentColor; }
+  .thermal-nominal { border-color: oklch(0.78 0.145 205 / 45%); background: oklch(0.78 0.145 205 / 10%); color: var(--primary); }
+  .thermal-degraded { border-color: oklch(0.65 0.23 24 / 45%); background: oklch(0.65 0.23 24 / 12%); color: var(--critical); }
 </style>
 </head>
 <body>
@@ -38,20 +46,26 @@
 
       <section class="panel glass">
         <div class="panel-header">
-          <div><h3>Telemetry Records</h3><p class="subtitle" id="recordsSubtitle"></p></div>
+          <div>
+            <h3>Telemetry Records</h3>
+            <p class="subtitle" id="recordsSubtitle"></p>
+            <p class="telemetry-legend"><strong>Thermal Status</strong> = subsystem input · <strong>Health</strong> = overall model priority</p>
+          </div>
           <div class="table-toolbar">
             <div class="field search-wrap">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
               <input type="text" id="searchInput" class="input" placeholder="Search timestamp or status" />
             </div>
             <button type="button" id="sortBtn" class="btn">Sort Newest</button>
-            <button type="button" class="btn btn-primary">Export CSV</button>
+            <button type="button" id="exportCsvBtn" class="btn btn-primary">Export CSV</button>
           </div>
         </div>
         <div class="table-wrap" style="max-height:440px;overflow:auto">
           <table class="data-table" style="min-width:980px">
             <thead><tr>
-              <th>Timestamp</th><th>Satellite</th><th>Battery V</th><th>Temp °C</th><th>Altitude km</th><th>Attitude °</th><th>Rate Mbps</th><th>Thermal</th><th>Health</th>
+              <th>Timestamp</th><th>Satellite</th><th>Battery V</th><th>Temp °C</th><th>Altitude km</th><th>Attitude °</th><th>Rate Mbps</th>
+              <th title="Thermal control subsystem state"> <span class="telemetry-column-label">Thermal Status<small>SUBSYSTEM INPUT</small></span></th>
+              <th title="Overall health and priority from the prediction pipeline"> <span class="telemetry-column-label">Health<small>OVERALL PREDICTION</small></span></th>
             </tr></thead>
             <tbody id="recordsBody"></tbody>
           </table>
@@ -66,6 +80,12 @@
     document.querySelectorAll("[data-sat]").forEach((b) => b.addEventListener("click", () => { satId = b.dataset.sat; refresh(); }));
   }
 
+  function thermalStatusHTML(status) {
+    const normalized = String(status).toUpperCase();
+    const cls = normalized === "DEGRADED" ? "thermal-degraded" : "thermal-nominal";
+    return `<span class="thermal-state ${cls}">${normalized}</span>`;
+  }
+
   function renderMetricCards(telemetryAnnotated) {
     const t = telemetryAnnotated;
     const cards = [
@@ -74,7 +94,7 @@
       { label: "Orbital Altitude", value: `${t.orbital_altitude.value.toFixed(1)} km`, ok: true },
       { label: "Attitude Error", value: `${t.attitude_control_error.value.toFixed(2)}°`, ok: t.attitude_control_error.status === "NORMAL" },
       { label: "Transmission Rate", value: `${t.data_transmission_rate.value.toFixed(1)} Mbps`, ok: t.data_transmission_rate.status === "NORMAL" },
-      { label: "Thermal Status", value: t.thermal_control_status.value === 1 ? "NOMINAL" : "DEGRADED", ok: t.thermal_control_status.status === "NORMAL" },
+      { label: "Thermal Control Status", value: t.thermal_control_status.value === 1 ? "NOMINAL" : "DEGRADED", ok: t.thermal_control_status.status === "NORMAL" },
     ];
     document.getElementById("metricCards").innerHTML = cards.map((c) => `
       <div class="metric-card glass glass-hover">
@@ -112,7 +132,7 @@
     });
   }
 
-  function renderTable(history) {
+  function getVisibleRecords(history) {
     let list = history.map((h) => ({
       time: new Date(h.timestamp).toISOString().replace("T", " ").slice(0, 19) + " UTC",
       battery_voltage: h.telemetry.battery_voltage,
@@ -125,7 +145,11 @@
     }));
     if (query) list = list.filter((r) => r.time.includes(query) || r.health.toLowerCase().includes(query.toLowerCase()));
     if (desc) list = list.slice().reverse();
+    return list;
+  }
 
+  function renderTable(history) {
+    const list = getVisibleRecords(history);
     document.getElementById("recordsSubtitle").textContent = `${list.length} samples · ${satId}`;
     document.getElementById("recordsBody").innerHTML = list.map((r) => `
       <tr class="${r.health === "CRITICAL" ? "row-critical" : ""}">
@@ -136,9 +160,42 @@
         <td class="mono-num">${r.orbital_altitude.toFixed(2)}</td>
         <td class="mono-num" style="color:${r.attitude_control_error > 3.99 ? "var(--critical)" : ""}">${r.attitude_control_error.toFixed(2)}</td>
         <td class="mono-num">${r.data_transmission_rate.toFixed(1)}</td>
-        <td>${statusChipHTML(r.thermal, false)}</td>
+        <td>${thermalStatusHTML(r.thermal)}</td>
         <td>${statusChipHTML(r.health)}</td>
       </tr>`).join("");
+  }
+
+  function csvCell(value) {
+    const text = String(value ?? "");
+    return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  }
+
+  function exportCsv() {
+    const rows = getVisibleRecords(currentHistory);
+    const headers = ["Timestamp", "Satellite", "Battery V", "Temp °C", "Altitude km", "Attitude °", "Rate Mbps", "Thermal Status", "Health"];
+    const lines = [
+      headers.map(csvCell).join(","),
+      ...rows.map((r) => [
+        r.time,
+        satId,
+        r.battery_voltage.toFixed(2),
+        r.solar_panel_temperature.toFixed(1),
+        r.orbital_altitude.toFixed(2),
+        r.attitude_control_error.toFixed(2),
+        r.data_transmission_rate.toFixed(1),
+        r.thermal,
+        r.health,
+      ].map(csvCell).join(",")),
+    ];
+    const blob = new Blob(["\uFEFF" + lines.join("\r\n") + "\r\n"], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${satId.toLowerCase()}-telemetry-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
   }
 
   async function refresh() {
@@ -155,6 +212,7 @@
 
   document.getElementById("searchInput").addEventListener("input", (e) => { query = e.target.value; renderTable(currentHistory); });
   document.getElementById("sortBtn").addEventListener("click", () => { desc = !desc; document.getElementById("sortBtn").textContent = "Sort " + (desc ? "Newest" : "Oldest"); renderTable(currentHistory); });
+  document.getElementById("exportCsvBtn").addEventListener("click", exportCsv);
 
   refresh();
   setInterval(refresh, 30000);

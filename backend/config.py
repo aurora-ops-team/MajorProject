@@ -9,7 +9,10 @@ or `python backend/app.py` from the project root both work).
 
 import os
 
+from dotenv import load_dotenv
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+load_dotenv(os.path.join(BASE_DIR, ".env"))
 
 # ---------------------------------------------------------------------
 # Data sources
@@ -112,3 +115,14 @@ CORS_ORIGINS = "*"
 HOST = "0.0.0.0"
 PORT = 5000
 DEBUG = True
+
+# ---------------------------------------------------------------------
+# Chat assistant
+# ---------------------------------------------------------------------
+CHAT_PROVIDER = os.getenv("AURORA_CHAT_PROVIDER", "fallback").lower()
+CHAT_API_URL = os.getenv("AURORA_CHAT_API_URL", "")
+CHAT_API_KEY = os.getenv("AURORA_CHAT_API_KEY", "")
+CHAT_MODEL = os.getenv("AURORA_CHAT_MODEL", "")
+CHAT_TIMEOUT_SECONDS = float(os.getenv("AURORA_CHAT_TIMEOUT_SECONDS", "15"))
+CHAT_MAX_MESSAGE_LENGTH = 2000
+CHAT_MAX_MESSAGES = 12

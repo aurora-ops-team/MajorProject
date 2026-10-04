@@ -132,11 +132,31 @@ loading `api.js`, e.g. add this to a page's `<head>`:
   by your training scripts.
 - **System Information** — architecture, tech stack, dataset facts and
   parameter envelopes, all pulled live from the backend.
-- **Mission Assistant** (chat bubble, bottom-right) — answers questions by
-  calling the same REST API the dashboards use, so it only ever reports
-  real, current data. It is a lightweight rule-based responder, not a full
-  retrieval-augmented LLM — wiring in an actual LLM/RAG backend was outside
-  the scope of this integration pass and would be a natural next step.
+- **Mission Assistant** (chat bubble, bottom-right) — sends read-only
+  conversations to `POST /api/chat`. The backend builds a current,
+  structured operational context and uses an optional OpenAI-compatible LLM
+  provider when configured. Without a provider, it uses a deterministic
+  data-grounded fallback, so local development still works without an API
+  key.
+
+### Optional LLM-backed chatbot
+
+The chatbot is read-only: it cannot acknowledge alerts, change incidents, or
+modify satellite state. To enable an OpenAI-compatible provider, configure
+these backend environment variables before starting Flask:
+
+```bash
+set AURORA_CHAT_PROVIDER=openai-compatible
+set AURORA_CHAT_API_URL=https://your-provider.example/v1/chat/completions
+set AURORA_CHAT_API_KEY=your-server-side-key
+set AURORA_CHAT_MODEL=your-model-name
+```
+
+On PowerShell, use `$env:AURORA_CHAT_PROVIDER = "openai-compatible"` and the
+same `$env:` form for the other variables. The API key is never sent to the
+browser. If the provider is missing, unavailable, or returns an invalid
+response, the backend returns a grounded deterministic fallback instead.
+Messages are limited to 2,000 characters each and 12 messages per request.
 
 ## Project layout
 
@@ -144,6 +164,8 @@ loading `api.js`, e.g. add this to a page's `<head>`:
 backend/
   app.py                    entry point
   config.py                 feature order, envelopes, simulation settings
+  .env                      local chatbot configuration (not committed)
+  .env.example              chatbot configuration template
   requirements.txt
   data/                     satellite_1/2_telemetry.csv (copied from project root)
   model_artifacts/          preprocessor + all 6 trained models (copied from step2/ and ModelTraining/)

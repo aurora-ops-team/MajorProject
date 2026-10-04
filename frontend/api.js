@@ -50,4 +50,6 @@ const api = {
   modelPlotUrl: (filename) => `${API_BASE}/api/models/plots/${filename}`,
 
   getSystemInfo: () => apiGet("/api/system/info"),
+  chat: (messages) => apiPost("/api/chat", { messages }),
+  getChatStatus: () => apiGet("/api/chat/status"),
 };

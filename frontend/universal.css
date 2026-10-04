@@ -294,6 +294,11 @@ table.data-table tbody tr.selected { background: oklch(0.78 0.145 205 / 10%); }
 .chat-msg { display: flex; }
 .chat-msg.user { justify-content: flex-end; }
 .chat-bubble { max-width: 85%; border-radius: var(--radius-xl); padding: .5rem .75rem; font-size: .8rem; line-height: 1.5; }
+.chat-bubble p { margin: 0; }
+.chat-bubble p + p { margin-top: .65rem; }
+.chat-bubble ul { margin: .35rem 0 0; padding-left: 1.15rem; }
+.chat-bubble li + li { margin-top: .3rem; }
+.chat-bubble strong { color: var(--primary); font-weight: 600; }
 .chat-msg.user .chat-bubble { border: 1px solid oklch(0.78 0.145 205 / 35%); background: oklch(0.78 0.145 205 / 12%); }
 .chat-msg.ai .chat-bubble { border: 1px solid var(--border); background: oklch(0.16 0.03 258 / 50%); color: oklch(0.95 0.012 240 / 90%); }
 .chat-typing { display: flex; align-items: center; gap: .375rem; width: fit-content; border-radius: var(--radius-xl); border: 1px solid var(--border); background: oklch(0.16 0.03 258 / 50%); padding: .625rem .75rem; }

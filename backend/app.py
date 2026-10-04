@@ -24,6 +24,7 @@ from routes.satellite_routes import satellite_bp
 from routes.alert_routes import alert_bp
 from routes.model_routes import model_bp
 from routes.system_routes import system_bp
+from routes.chat_routes import chat_bp
 
 
 def create_app():
@@ -34,6 +35,7 @@ def create_app():
     app.register_blueprint(alert_bp)
     app.register_blueprint(model_bp)
     app.register_blueprint(system_bp)
+    app.register_blueprint(chat_bp)
 
     @app.route("/api/health")
     def health_check():

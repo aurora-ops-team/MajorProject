@@ -237,12 +237,55 @@ function initChatbot() {
   const clearBtn = document.getElementById("chatClear");
   let typing = false;
 
-  const GREETING = { role: "ai", text: "AI Satellite Assistant online. I have live context on SAT-01 and SAT-02 telemetry, active anomalies, prioritised alerts and model performance. How can I help?" };
+  const FALLBACK_GREETING = "AI Satellite Assistant online in grounded fallback mode. I have live context on SAT-01 and SAT-02 telemetry, active anomalies, prioritised alerts and model performance. How can I help?";
+  const LLM_GREETING = "Welcome to the Aurora Ops AI Satellite Assistant. DeepSeek is connected and ready with live context on SAT-01 and SAT-02 telemetry, active anomalies, prioritised alerts and model performance. How can I help?";
+  const GREETING = { role: "ai", text: FALLBACK_GREETING };
   let messages = [GREETING];
+
+  function formatChatText(text) {
+    const lines = escapeHTML(text).split(/\r?\n/);
+    const blocks = [];
+    let paragraph = [];
+    let list = [];
+
+    function flushParagraph() {
+      if (paragraph.length) {
+        blocks.push(`<p>${paragraph.join(" ")}</p>`);
+        paragraph = [];
+      }
+    }
+    function flushList() {
+      if (list.length) {
+        blocks.push(`<ul>${list.map((item) => `<li>${item}</li>`).join("")}</ul>`);
+        list = [];
+      }
+    }
+
+    lines.forEach((line) => {
+      const trimmed = line.trim();
+      const bullet = trimmed.match(/^[-*•]\s+(.+)/);
+      if (!trimmed) {
+        flushParagraph();
+        flushList();
+      } else if (bullet) {
+        flushParagraph();
+        list.push(bullet[1]);
+      } else {
+        flushList();
+        paragraph.push(trimmed);
+      }
+    });
+    flushParagraph();
+    flushList();
+
+    return blocks.join("").replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+  }
 
   function renderMessages() {
     body.innerHTML = messages.map((m) =>
-      `<div class="chat-msg ${m.role === "user" ? "user" : "ai"}"><div class="chat-bubble">${escapeHTML(m.text)}</div></div>`
+      `<div class="chat-msg ${m.role === "user" ? "user" : "ai"}"><div class="chat-bubble">${
+        m.role === "user" ? escapeHTML(m.text) : formatChatText(m.text)
+      }</div></div>`
     ).join("") + (typing ? '<div class="chat-typing"><span></span><span></span><span></span></div>' : "");
     body.scrollTop = body.scrollHeight;
   }
@@ -259,7 +302,7 @@ function initChatbot() {
     renderMessages();
     let reply;
     try {
-      reply = await assistantReply(q);
+      reply = await assistantReply(q, messages);
     } catch (e) {
       reply = "I couldn't reach the backend just now. Make sure the Flask API (backend/app.py) is running on " + (window.AURORA_API_BASE || "http://localhost:5000") + ".";
     }
@@ -274,6 +317,13 @@ function initChatbot() {
 
   renderMessages();
   renderSuggestions();
+  api.getChatStatus().then((status) => {
+    GREETING.text = status.configured ? LLM_GREETING : FALLBACK_GREETING;
+    messages[0] = GREETING;
+    renderMessages();
+  }).catch(() => {
+    // Keep the local fallback greeting when the backend is unavailable.
+  });
 }
 
 /* Lightweight, fully-grounded assistant: rather than a fabricated
@@ -281,7 +331,23 @@ function initChatbot() {
    right now. A full retrieval-augmented LLM assistant is out of scope
    for this integration pass -- this keeps the chat widget honest about
    only ever surfacing real backend data. */
-async function assistantReply(q) {
+async function assistantReply(q, conversation) {
+  try {
+    const history = conversation
+      .filter((message) => message.role === "user" || message.role === "ai")
+      .map((message) => ({
+        role: message.role === "ai" ? "assistant" : "user",
+        content: message.text,
+      }));
+    const result = await api.chat(history);
+    return result.reply;
+  } catch (e) {
+    return localAssistantReply(q);
+  }
+}
+
+/* Offline fallback for development and for deployments without an LLM provider. */
+async function localAssistantReply(q) {
   const s = q.toLowerCase();
 
   if (s.includes("sat-01") || s.includes("sat-02") || s.includes("status") || s.includes("health")) {
